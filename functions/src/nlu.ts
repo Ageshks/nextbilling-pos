@@ -40,7 +40,7 @@ const NUM_WORDS: Record<string, number> = { a: 1, an: 1, one: 1, two: 2, three: 
  * 3 breads". Never consumes number words — quantities survive intact.
  */
 const FILLER_RE =
-  /^\s*(?:(?:i|we|you|u|pls|plz|please|kindly|me)\s+)*(?:(?:would|i'd|id)\s+like|wanna|want|wanted|need|needed|looking\s+for|get\s+me|give\s+me|send\s+me|bring\s+me|grab|pick|can\s+you|could\s+you|may\s+i|can\s+i|shall\s+i|let\s+me|do\s+you\s+have|do\s+u\s+have|does\s+the\s+store\s+have|have\s+you\s+got|got\s+any|any)(?:\s+(?:get|have|add|buy))?\b[\s,:;-]*/
+  /^\s*(?:(?:i|we|you|u|pls|plz|please|kindly|me)\s+)*(?:(?:would|i'd|id)\s+like|wanna|want|wanted|need|needed|looking\s+for|get\s+me|give\s+me|send\s+me|bring\s+me|grab|pick|can\s+you|could\s+you|may\s+i|can\s+i|shall\s+i|let\s+me|do\s+you\s+have|do\s+u\s+have|does\s+the\s+store\s+have|have\s+you\s+got|got\s+any|any|add|order)(?:\s+(?:get|have|add|buy))?\b[\s,:;-]*/
 
 function stripFiller(segment: string): string {
   let cur = segment.trim()
@@ -72,17 +72,35 @@ export function parseQuantityPhrase(raw: string): ParsedLineItem[] {
     let unit: string | undefined
     let rest = seg
 
-    // Leading quantity: number word, digit, or trailing "x N"/"N x".
+    // Leading quantity: number word, digit (+ optional glued/separate unit),
+    // or "x N"/"N x" handled further below. A word right after the number is
+    // only treated as a UNIT when it is a known unit word — otherwise it
+    // belongs to the product name ("2 milk", "3 breads", "5 Coca Cola 1L").
     const leadWord = rest.match(/^([a-z]+)\b/)
+    let leadingParsed = false
     if (leadWord && leadWord[1] in NUM_WORDS) {
       quantity = NUM_WORDS[leadWord[1]]
       rest = rest.slice(leadWord[0].length).trim()
+      leadingParsed = true
     } else {
-      const leadNum = rest.match(/^(\d+(?:\.\d+)?)\s*([a-z]*)?\s*(.+)$/)
-      if (leadNum) {
-        quantity = parseFloat(leadNum[1])
-        if (leadNum[2]) unit = singular(leadNum[2])
-        rest = leadNum[3].trim()
+      const withTail = rest.match(/^(\d+(?:\.\d+)?)\s*([a-z]+)\s+(.+)$/)
+      const bare = rest.match(/^(\d+(?:\.\d+)?)(?:\s*([a-z]+))?$/)
+      if (withTail) {
+        quantity = parseFloat(withTail[1])
+        if (UNIT_WORDS.includes(withTail[2])) {
+          unit = singular(withTail[2])
+          rest = withTail[3].trim()
+        } else {
+          rest = `${withTail[2]} ${withTail[3]}`.trim()
+        }
+        leadingParsed = true
+      } else if (bare) {
+        quantity = parseFloat(bare[1])
+        if (bare[2]) {
+          if (UNIT_WORDS.includes(bare[2])) unit = singular(bare[2])
+          else rest = bare[2]
+        }
+        leadingParsed = true
       }
     }
     // Fillers directly after the quantity.
@@ -104,7 +122,15 @@ export function parseQuantityPhrase(raw: string): ParsedLineItem[] {
       rest = rest.slice(0, trailX.index).trim()
     } else {
       const trailNum = rest.match(/\s+(\d+(?:\.\d+)?)\s*([a-z]{1,7})?$/)
-      if (trailNum && trailNum.index !== undefined && /\s/.test(rest.slice(0, trailNum.index + 1))) {
+      if (
+        !leadingParsed &&
+        trailNum &&
+        trailNum.index !== undefined &&
+        /\s/.test(rest.slice(0, trailNum.index + 1))
+      ) {
+        // Trailing count ("milk 10"). Skipped when a leading quantity was
+        // already parsed, so pack-size suffixes like "5 Coca Cola 1L" keep
+        // their intended quantity of 5 instead of being overridden by "1".
         quantity = parseFloat(trailNum[1])
         if (trailNum[2] && UNIT_WORDS.includes(trailNum[2])) unit = singular(trailNum[2])
         rest = rest.slice(0, trailNum.index).trim()
@@ -140,7 +166,11 @@ export function detectIntent(raw: string): Intent {
   if (/^[4️⃣]|^4$/.test(t)) return 'MENU_4_CONTACT'
   if (/\b(remove|delete|drop)\b/.test(t)) return 'REMOVE_ITEM'
   if (/\b(cart|what do i have|my order details)\b/.test(t) && !/\bcheckout\b/.test(t)) return 'VIEW_CART'
-  if (/\b(checkout|confirm|place the order|pay now|proceed)\b/.test(t)) return 'CHECKOUT'
+  // Explicit confirmation must finalize the pending order — never re-show the
+  // summary (CHECKOUT does that). Checked first so "confirm"/"confirmed" wins.
+  // NOTE: "confirmed?" above means confirme+d?; spell both forms explicitly.
+  if (/\bconfirms?\b|\bconfirmed\b/.test(t)) return 'CONFIRM'
+  if (/\b(checkout|place the order|pay now|proceed)\b/.test(t)) return 'CHECKOUT'
   if (/^(yes|yep|yeah|ok|okay|sure|haan|ji haan)\b/.test(t)) return 'YES'
   if (/^(no|nope|nahi|cancel it|cancel)\b/.test(t)) return t.includes('cancel') ? 'CANCEL' : 'NO'
   if (/\b(track|where is my order|order status|status of)\b/.test(t) || /^#?ord-?\d+$/i.test(t)) return 'TRACK'
@@ -154,7 +184,6 @@ export function detectIntent(raw: string): Intent {
   )
     return 'STOCK_QUERY'
   if (/\b(price|cost|how much|rate)\b/.test(t) && !/\b(add|i want|i need|give me)\b/.test(t)) return 'PRICE_QUERY'
-  if (/\b(confirm)\b/.test(t)) return 'CONFIRM'
   if (/\b(add|want|need|get me|give me|looking for|do you have|have you got|order)\b/.test(t)) return 'ADD_ITEMS'
   // Bare product mentions ("milk") → treat as add/search.
   if (t.split(' ').length <= 6) return 'ADD_ITEMS'

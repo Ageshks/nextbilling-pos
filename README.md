@@ -97,6 +97,38 @@ src/
   utils/        money math, formatting, CSV, invoice numbers, validation
 ```
 
+## WhatsApp ordering module (WhatsApp Orders sidebar section)
+
+Customers order over WhatsApp; staff manage everything from **WhatsApp Orders** in the POS. Architecture: WhatsApp Cloud API → webhook → Cloud Function (webhook verification, deterministic NLU/product matching against the *existing* product catalog) → Firestore `waOrders` / `whatsappConversations` → POS dashboard → Razorpay payment link → server-side payment-webhook verification → packing workflow → status updates back to the customer.
+
+Key guarantees:
+
+- Prices/totals/stock always come from Firestore inside a transaction — customer-supplied numbers are never trusted.
+- Stock is reserved atomically at checkout and auto-released by a scheduled expiry job when payment times out.
+- The order state machine (`PENDING → AWAITING_PAYMENT → PAID → PACKING → READY_FOR_PICKUP → COMPLETED`, plus `CANCELLED`/`REFUNDED`) is validated server-side; illegal transitions are rejected.
+- Payment provider is abstracted behind an interface (`functions/src/payments/types.ts`) — swap providers without touching order logic.
+- Core POS keeps working if WhatsApp/Razorpay/AI are down: every external call is wrapped in best-effort error handling.
+
+### Server-side configuration (Cloud Functions env)
+
+Copy `functions/.env.example` → `functions/.env` and set:
+`WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET` (Meta App secret for webhook signature checks), `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`. Secrets live only in functions config — never in frontend code.
+
+Non-secret preferences (business hours, pickup instructions, payment timeout minutes, template text) are editable per store in **Settings → WhatsApp**.
+
+### Deploying & wiring
+
+```bash
+firebase deploy --only firestore:rules,firestore:indexes   # waOrders/whatsappConversations rules + indexes
+cd functions && npm i && npm test && firebase deploy --only functions
+```
+
+> Functions require the Blaze plan on your Firebase project.
+
+Then in the Meta developer console point the WhatsApp webhook to `https://us-central1-nextbilling-47f03.cloudfunctions.net/waWebhook` with the verify token above, subscribe to `messages`, and add `https://<region>-nextbilling-47f03.cloudfunctions.net/razorpayWebhook` (event: `payment.captured`) in the Razorpay dashboard.
+
+Engine rules are unit-tested (`cd functions && npm test`): NLU quantity/intent parsing, product matching incl. plurals & aliases, and state-machine transition validation.
+
 ## Scripts
 
 ```bash
