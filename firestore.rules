@@ -1,0 +1,257 @@
+rules_version = '2';
+
+// ---------------------------------------------------------------------------
+// SuperMart POS — Firestore Security Rules
+//
+// Model: every document is scoped to a store (`storeId`). The signed-in user's
+// profile lives at `users/{uid}` and carries `{ storeId, role, status }`.
+//
+// Roles mirror src/types/common.ts (ROLES):
+//   OWNER     – everything, incl. settings & user management
+//   ADMIN     – everything except settings & user management
+//   CASHIER   – POS, sales, customers, held bills
+//   INVENTORY – products, purchases, suppliers, stock
+//
+// Bootstrap: registration creates the store + settings + the first (OWNER)
+// profile while the new account has no profile document yet — the rules below
+// allow exactly that narrow case.
+// ---------------------------------------------------------------------------
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---- Helpers ----------------------------------------------------------
+    function signedIn() {
+      return request.auth != null
+    }
+    function hasProfile() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+    }
+    function me() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data
+    }
+    function isActive() {
+      return hasProfile() && me().status == 'active'
+    }
+    // "Bootstrap" state: the signed-in account is not yet a member of any
+    // *valid* store. This covers a brand-new account (no profile), and also an
+    // account with a stale/partial profile lingering from an earlier failed
+    // setup attempt (profile present but its store was never created). In that
+    // state the user may (re)run first-run setup, which atomically repairs it.
+    function hasValidStore() {
+      return hasProfile()
+        && exists(/databases/$(database)/documents/stores/$(myStore()))
+    }
+    // A usable store membership = an ACTIVE profile whose store actually exists.
+    // The setup page shows whenever the account is NOT an active member of a
+    // real store (fresh account, orphan profile, or disabled profile). In every
+    // such state the account may (re)run first-run setup, which atomically makes
+    // it the OWNER of its own fresh store — providing self-healing for stale
+    // profiles and partial previous attempts.
+    function hasUsableStore() {
+      return isActive() && hasValidStore()
+    }
+    function bootstraping() {
+      return signedIn() && !hasUsableStore()
+    }
+    function myStore() {
+      return me().storeId
+    }
+    function inStore(storeId) {
+      return isActive() && myStore() == storeId
+    }
+    function inStoreOfRes() {
+      return isActive() && myStore() == resource.data.storeId
+    }
+    function isOwner() {
+      return isActive() && me().role == 'OWNER'
+    }
+    function isManager() {
+      return isActive() && (me().role == 'OWNER' || me().role == 'ADMIN')
+    }
+    function canSell() {
+      return isActive() && (me().role == 'OWNER' || me().role == 'ADMIN' || me().role == 'CASHIER')
+    }
+    function managesStock() {
+      return isActive() && (me().role == 'OWNER' || me().role == 'ADMIN' || me().role == 'INVENTORY')
+    }
+    function createdByMeInMyStore() {
+      return request.resource.data.storeId == myStore()
+    }
+
+    // ---- Users ------------------------------------------------------------
+    match /users/{uid} {
+      // A user can always read their own profile; staff can read profiles
+      // belonging to their store (needed by login/profile resolution).
+      allow get: if signedIn() && (
+        request.auth.uid == uid
+        || (hasProfile() && resource.data.storeId == myStore())
+      )
+      // Only OWNER/ADMIN may enumerate the team (UsersPage is role-guarded).
+      allow list: if isManager()
+      // First-run setup: an account that does not yet belong to a valid store
+      // may create (or self-repair) its OWN profile as the store OWNER.
+      // Afterwards, only managers may provision staff accounts into their store.
+      allow create, update: if (bootstraping() && uid == request.auth.uid
+          && request.resource.data.role == 'OWNER'
+          && request.resource.data.status == 'active')
+        || (isManager() && request.resource.data.storeId == myStore())
+      allow delete: if isManager() && resource.data.storeId == myStore()
+    }
+
+    // ---- Stores & sequential counters --------------------------------------
+    match /stores/{storeId} {
+      allow get, list: if inStore(storeId)
+      // The store document is created during registration setup (atomically,
+      // bundled with its settings + owner profile + counters in one batch).
+      allow create: if bootstraping()
+      allow update: if isOwner() && myStore() == storeId
+      allow delete: if false
+
+      // Invoice/purchase counters are bumped inside transactions by POS
+      // (sales) and inventory (purchases) roles. They are also created as part
+      // of first-run setup, so writes are allowed while the account is still in
+      // bootstrap (it owns the fresh store being created).
+      match /counters/{namespace} {
+        allow read: if inStore(storeId)
+        allow write: if inStore(storeId) || bootstraping()
+      }
+    }
+
+    // ---- Settings (one doc per store) ---------------------------------------
+    match /settings/{storeId} {
+      allow get, list: if inStore(storeId)
+      allow create: if bootstraping()
+        || (isOwner() && myStore() == storeId)
+      allow update: if isOwner() && myStore() == storeId
+      allow delete: if false
+    }
+
+    // ---- Catalog ------------------------------------------------------------
+    match /products/{id} {
+      allow read: if inStoreOfRes()
+      allow create: if managesStock() && createdByMeInMyStore()
+      allow update, delete: if managesStock() && inStoreOfRes()
+    }
+    match /categories/{id} {
+      allow read: if inStoreOfRes()
+      allow create: if managesStock() && createdByMeInMyStore()
+      allow update, delete: if managesStock() && inStoreOfRes()
+    }
+    match /brands/{id} {
+      allow read: if inStoreOfRes()
+      allow create: if managesStock() && createdByMeInMyStore()
+      allow update, delete: if managesStock() && inStoreOfRes()
+    }
+
+    // ---- Suppliers -----------------------------------------------------------
+    match /suppliers/{id} {
+      allow read: if inStoreOfRes()
+      allow create: if managesStock() && createdByMeInMyStore()
+      allow update: if managesStock() && inStoreOfRes()
+      allow delete: if isManager() && inStoreOfRes()
+    }
+
+    // ---- Customers (udhaar book) ---------------------------------------------
+    match /customers/{id} {
+      allow read: if inStoreOfRes()
+      allow create, update: if canSell() && (createdByMeInMyStore() || inStoreOfRes())
+      allow delete: if isManager() && inStoreOfRes()
+    }
+
+    // ---- Sales (immutable money records; returns/cancel are updates) ----------
+    match /sales/{id} {
+      allow read: if inStoreOfRes()
+      allow create: if canSell() && createdByMeInMyStore()
+      // Returns & voids update status/returnInfo; original bills are never deleted.
+      allow update: if canSell() && inStoreOfRes()
+      allow delete: if false
+    }
+
+    match /returns/{id} {
+      allow read: if inStoreOfRes()
+      allow create: if canSell() && createdByMeInMyStore()
+      allow update, delete: if false
+    }
+
+    // ---- Purchases (stock in) --------------------------------------------------
+    match /purchases/{id} {
+      allow read: if inStoreOfRes()
+      allow create: if managesStock() && createdByMeInMyStore()
+      allow update: if managesStock() && inStoreOfRes()
+      allow delete: if false
+    }
+
+    // ---- Stock ledger (append-only) ---------------------------------------------
+    match /stockMovements/{id} {
+      allow read: if inStoreOfRes()
+      allow create: if isActive() && createdByMeInMyStore()
+      allow update, delete: if false
+    }
+
+    // ---- Expenses (owner/admin only) ----------------------------------------------
+    match /expenses/{id} {
+      allow read: if isManager() && inStoreOfRes()
+      allow create: if isManager() && createdByMeInMyStore()
+      allow update, delete: if isManager() && inStoreOfRes()
+    }
+
+    // ---- Cash shifts (opened/closed by OWNER/ADMIN) ---------------------------------
+    match /cashSessions/{id} {
+      allow read: if isManager() && inStoreOfRes()
+      allow create, update: if isManager() && (createdByMeInMyStore() || inStoreOfRes())
+      allow delete: if false
+    }
+
+    // ---- Held bills (POS park/resume) ------------------------------------------------
+    match /heldBills/{id} {
+      allow read: if inStoreOfRes()
+      allow create, update, delete: if canSell() && (createdByMeInMyStore() || inStoreOfRes())
+    }
+
+    // ---- Audit trail (append-only; managers can inspect) -------------------------------
+    match /auditLogs/{id} {
+      allow read: if isManager() && inStoreOfRes()
+      allow create: if isActive() && createdByMeInMyStore()
+      allow update, delete: if false
+    }
+
+    // ---- AI insights & daily rollups (owner/admin decision support) -------------------
+    // Stored per store; only managers may read/write. Users can never create or
+    // modify another store's insights, and insight docs can't be deleted from
+    // the client (keeps the audit trail intact).
+    match /aiInsights/{id} {
+      allow read: if isManager() && inStoreOfRes()
+      allow create, update: if isManager() && (createdByMeInMyStore() || inStoreOfRes())
+      allow delete: if false
+    }
+    match /dailyInsights/{storeId} {
+      allow read: if isManager() && inStore(storeId)
+      allow create, update: if isManager() && inStore(storeId)
+      allow delete: if false
+    }
+
+    // ---- WhatsApp commerce -------------------------------------------------
+    // Order documents are created & mutated ONLY by backend Cloud Functions
+    // (which bypass these rules via the Admin SDK). Staff clients get read-only
+    // access scoped to their store; every state transition they trigger goes
+    // through the server-validated `orderAction` callable. Customers cannot
+    // touch any of this from the web, and can never read other stores' orders.
+    match /orders/{id} {
+      allow read: if inStoreOfRes()
+      allow write: if false
+    }
+    // Conversation transcripts carry customer phone numbers — staff-visible,
+    // but immutable from clients.
+    match /waConversations/{id} {
+      allow read: if inStoreOfRes()
+      allow write: if false
+    }
+
+    // ---- Deny everything else ------------------------------------------------------------
+    match /{document=**} {
+      allow read, write: if false
+    }
+  }
+}
