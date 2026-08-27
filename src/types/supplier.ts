@@ -12,5 +12,6 @@ export interface Supplier extends FirestoreType {
   notes: string
   outstandingBalance: number
   totalPurchases: number
-  lastPurchaseAt: number
+    lastPurchaseAt: number
+  active: boolean
 }

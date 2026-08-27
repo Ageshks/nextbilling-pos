@@ -5,6 +5,7 @@ import {
   updateDoc,
   getDocs,
   getDoc,
+  onSnapshot,
   query,
   where,
   orderBy,
@@ -21,6 +22,32 @@ export interface SupplierDraft {
   address: string
   gstNumber: string
   notes: string
+}
+
+/**
+ * Real-time supplier list for the current store. The listener is the single
+ * source of truth for the UI — create/update flows never mutate local state
+ * manually (the snapshot fires automatically, preventing duplicates).
+ * Returns an unsubscribe function.
+ */
+export function subscribeToSuppliers(
+  storeId: string,
+  onData: (rows: Supplier[]) => void,
+  onError: (err: Error) => void,
+): () => void {
+  const q = query(
+    collection(getDb(), COLLECTIONS.suppliers),
+    where('storeId', '==', storeId),
+    orderBy('name', 'asc'),
+  )
+  return onSnapshot(
+    q,
+    (snap) => {
+      const all = unwrapDocs<Supplier>(snap.docs).filter((s) => s.active !== false)
+      onData(all)
+    },
+    onError,
+  )
 }
 
 export async function listSuppliers(storeId: string): Promise<Supplier[]> {
@@ -68,6 +95,26 @@ export async function updateSupplier(
   const db = getDb()
   await updateDoc(doc(db, COLLECTIONS.suppliers, id), {
     ...data,
+    updatedAt: serverTimestamp(),
+    updatedBy,
+  })
+}
+
+/**
+ * Soft-delete — purchases referencing this supplier keep historical names.
+ * The realtime listener drops inactive rows automatically.
+ */
+export async function deactivateSupplier(id: string, updatedBy: string): Promise<void> {
+  await updateDoc(doc(getDb(), COLLECTIONS.suppliers, id), {
+    active: false,
+    updatedAt: serverTimestamp(),
+    updatedBy,
+  })
+}
+
+export async function restoreSupplier(id: string, updatedBy: string): Promise<void> {
+  await updateDoc(doc(getDb(), COLLECTIONS.suppliers, id), {
+    active: true,
     updatedAt: serverTimestamp(),
     updatedBy,
   })

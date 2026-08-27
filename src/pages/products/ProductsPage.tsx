@@ -15,21 +15,20 @@ import {
   createProduct,
   updateProduct,
   setProductActive,
-  listCategories,
-  listBrands,
   createCategory,
   createBrand,
-    parseProductCsv,
+  parseProductCsv,
   importProducts,
   buildProductCsvTemplate,
-  type ImportResult,
+    type ImportResult,
 } from '../../services/productService'
+import { useCategories, useBrands } from '../../hooks/useCategories'
 import { formatMoney } from '../../utils/format'
 import { friendlyError } from '../../utils/errors'
 import { downloadCsv } from '../../utils/csv'
 import { validateProduct, type FieldErrors } from '../../utils/validation'
 import { UNITS } from '../../types'
-import type { Product, ProductDraft, Category, Brand } from '../../types'
+import type { Product, ProductDraft } from '../../types'
 
 const GST_RATES = [0, 0.25, 3, 5, 12, 18, 28]
 
@@ -73,8 +72,9 @@ export default function ProductsPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cursorRef = useRef<Parameters<typeof listProducts>[2]>(undefined)
 
-  const [categories, setCategories] = useState<Category[]>([])
-  const [brands, setBrands] = useState<Brand[]>([])
+  // Real-time categories & brands (live-update; no manual refresh after create/edit).
+  const { items: categories } = useCategories(user?.storeId)
+  const { items: brands } = useBrands(user?.storeId)
 
   const [formOpen, setFormOpen] = useState(false)
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
@@ -101,27 +101,13 @@ export default function ProductsPage() {
         setLoading(false)
       }
     },
-    [user, showInactive, notify],
+      [user, showInactive, notify],
   )
-
-  const loadMeta = useCallback(async () => {
-    if (!user) return
-    try {
-      const [cats, brs] = await Promise.all([listCategories(user.storeId), listBrands(user.storeId)])
-      setCategories(cats)
-      setBrands(brs)
-    } catch {
-      // Non-fatal: dropdowns just stay empty.
-    }
-  }, [user])
 
   useEffect(() => {
     cursorRef.current = undefined
     void load(false)
   }, [load])
-  useEffect(() => {
-    void loadMeta()
-  }, [loadMeta])
 
   const visible = useMemo(() => {
     const t = searchText.trim().toLowerCase()
@@ -226,9 +212,9 @@ export default function ProductsPage() {
         if (done % 10 === 0 || done === total) console.log(`Import progress ${done}/${total}`)
       })
       setImportResult(result)
-      success(`Import finished: ${result.created} created, ${result.updated} updated`, 'CSV import')
+            success(`Import finished: ${result.created} created, ${result.updated} updated`, 'CSV import')
       void load(false)
-      void loadMeta()
+      // categories/brands auto-update via their real-time listeners
     } catch (err) {
       toastError(friendlyError(err), 'Import failed')
     } finally {
@@ -395,7 +381,6 @@ export default function ProductsPage() {
                 const name = window.prompt('New category name')
                 if (name && user) {
                   void createCategory(user.storeId, name).then((id) => {
-                    void loadMeta()
                     setForm((f) => ({ ...f, categoryId: id, categoryName: name.trim() }))
                   })
                 }
@@ -419,7 +404,6 @@ export default function ProductsPage() {
                 const name = window.prompt('New brand name')
                 if (name && user) {
                   void createBrand(user.storeId, name).then((id) => {
-                    void loadMeta()
                     setForm((f) => ({ ...f, brandId: id, brandName: name.trim() }))
                   })
                 }

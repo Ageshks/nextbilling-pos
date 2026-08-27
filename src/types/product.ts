@@ -35,6 +35,8 @@ export interface Category {
   id?: string
   storeId: string
   name: string
+  /** Soft delete — products referencing the category keep historical names. */
+  active?: boolean
   createdAt?: number
   updatedAt?: number
 }
@@ -43,6 +45,7 @@ export interface Brand {
   id?: string
   storeId: string
   name: string
+  active?: boolean
   createdAt?: number
   updatedAt?: number
 }

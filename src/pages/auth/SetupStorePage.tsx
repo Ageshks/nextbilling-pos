@@ -42,8 +42,23 @@ export default function SetupStorePage() {
         await seedStore(storeId, authUser.uid)
         notify({ type: 'success', message: 'Sample products and categories added.', title: 'Seed data loaded' })
       }
-      navigate('/', { replace: true })
+            navigate('/', { replace: true })
     } catch (err) {
+      // Surface the real permission error message so the cause is diagnosable,
+      // while keeping the user-facing wording friendly.
+      console.error(
+        '[SETUP] createInitialSetup failed',
+        JSON.stringify(
+          {
+            ownerUid: authUser.uid,
+            storeName: storeName.trim(),
+            code: (err as { code?: string }).code,
+            message: String(err),
+          },
+          null,
+          2,
+        ),
+      )
       setError(friendlyError(err))
     } finally {
       setLoading(false)

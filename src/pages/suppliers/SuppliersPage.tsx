@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Plus, Pencil } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useStore } from '../../context/StoreContext'
@@ -9,12 +9,8 @@ import { Input } from '../../components/ui/Input'
 import { Modal } from '../../components/ui/Modal'
 import { Badge } from '../../components/ui/Badge'
 import { Spinner, EmptyState } from '../../components/ui/Spinner'
-import {
-  listSuppliers,
-  createSupplier,
-  updateSupplier,
-  type SupplierDraft,
-} from '../../services/supplierService'
+import { createSupplier, updateSupplier, type SupplierDraft } from '../../services/supplierService'
+import { useSuppliers } from '../../hooks/useSuppliers'
 import { formatMoney, formatDate } from '../../utils/format'
 import { friendlyError } from '../../utils/errors'
 import { required, isPhone, isEmail, type FieldErrors } from '../../utils/validation'
@@ -42,33 +38,20 @@ function validate(form: FormState): FieldErrors {
 export default function SuppliersPage() {
   const { user } = useAuth()
   const { settings } = useStore()
-  const { notify, success, error: toastError } = useToast()
+    const { notify, success, error: toastError } = useToast()
   const currency = settings?.currency ?? 'INR'
 
-  const [suppliers, setSuppliers] = useState<Supplier[]>([])
-  const [loading, setLoading] = useState(true)
+  const { suppliers, loading, error: loadError } = useSuppliers(user?.storeId)
+
   const [searchText, setSearchText] = useState('')
   const [formOpen, setFormOpen] = useState(false)
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [errors, setErrors] = useState<FieldErrors>({})
   const [saving, setSaving] = useState(false)
 
-  const load = useCallback(async () => {
-    if (!user) return
-    setLoading(true)
-    try {
-      const rows = await listSuppliers(user.storeId)
-      setSuppliers(rows)
-    } catch (err) {
-      notify({ type: 'error', message: friendlyError(err), title: 'Could not load suppliers' })
-    } finally {
-      setLoading(false)
-    }
-  }, [user, notify])
-
-  useEffect(() => {
-    void load()
-  }, [load])
+  if (loadError) {
+    notify({ type: 'error', message: loadError, title: 'Could not load suppliers' })
+  }
 
   const visible = useMemo(() => {
     const t = searchText.trim().toLowerCase()
@@ -80,7 +63,7 @@ export default function SuppliersPage() {
 
   const totalOutstanding = useMemo(() => suppliers.reduce((sum, s) => sum + s.outstandingBalance, 0), [suppliers])
 
-    const openCreate = () => {
+  const openCreate = () => {
     setForm(EMPTY_FORM)
     setErrors({})
     setFormOpen(true)
@@ -98,7 +81,7 @@ export default function SuppliersPage() {
     setErrors(errs)
     if (Object.keys(errs).length > 0) return
     setSaving(true)
-    try {
+        try {
       const { id, ...draft } = form
       if (id) {
         await updateSupplier(id, draft, user.uid)
@@ -108,7 +91,7 @@ export default function SuppliersPage() {
         success(`${form.name} added`, 'Supplier saved')
       }
       setFormOpen(false)
-      void load()
+      // No manual refresh: the onSnapshot listener updates the list in real time.
     } catch (err) {
       toastError(friendlyError(err), 'Could not save supplier')
     } finally {
