@@ -16,15 +16,13 @@ import {
   type PurchaseDraft,
 } from '../../services/purchaseService'
 import type { PurchaseItem } from '../../types/purchase'
-import {
-  listSuppliers,
-  createSupplier,
-} from '../../services/supplierService'
-import { searchProducts } from '../../services/productService'
+import { createSupplier } from '../../services/supplierService'
+import { searchProducts, createProduct } from '../../services/productService'
 import { formatMoney, formatDateTime, toDateInputValue, fromDateInputValue } from '../../utils/format'
 import { round2 } from '../../utils/calculations'
 import { friendlyError } from '../../utils/errors'
-import type { Purchase, Product, Supplier } from '../../types'
+import { UNITS, type Purchase, type Product, type ProductDraft, type Unit } from '../../types'
+import { useSuppliers } from '../../hooks/useSuppliers'
 import { aiPurchasePrefillKey } from '../../types/insight'
 
 interface DraftLine {
@@ -47,9 +45,9 @@ export default function PurchasesPage() {
   const [fromDate, setFromDate] = useState(toDateInputValue(Date.now() - 29 * 86400000))
   const [toDate, setToDate] = useState(toDateInputValue(Date.now()))
 
-  // New-purchase modal state
+    // New-purchase modal state
   const [open, setOpen] = useState(false)
-  const [suppliers, setSuppliers] = useState<Supplier[]>([])
+    const { suppliers, loading: suppliersLoading, error: suppliersError } = useSuppliers(user?.storeId)
   const [supplierId, setSupplierId] = useState('')
   const [supplierInvoiceNumber, setSupplierInvoiceNumber] = useState('')
   const [purchaseDate, setPurchaseDate] = useState(toDateInputValue(Date.now()))
@@ -60,6 +58,20 @@ export default function PurchasesPage() {
   const [searchingProducts, setSearchingProducts] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const debounceRef = useRef<number | undefined>(undefined)
+
+  // Quick product creation from within the purchase editor
+  const [quickOpen, setQuickOpen] = useState(false)
+  const [quickSaving, setQuickSaving] = useState(false)
+  const [qName, setQName] = useState('')
+  const [qUnit, setQUnit] = useState<Unit>('piece')
+  const [qPurchasePrice, setQPurchasePrice] = useState('')
+  const [qSellingPrice, setQSellingPrice] = useState('')
+  const [qGstRate, setQGstRate] = useState('0')
+
+  // Quick supplier creation from within the purchase editor (replaces system prompt)
+  const [newSupOpen, setNewSupOpen] = useState(false)
+  const [newSupName, setNewSupName] = useState('')
+  const [newSupSaving, setNewSupSaving] = useState(false)
 
   const load = useCallback(async () => {
     if (!user) return
@@ -79,21 +91,16 @@ export default function PurchasesPage() {
     }
   }, [user, fromDate, toDate, notify])
 
-  const loadSuppliers = useCallback(async () => {
-    if (!user) return
-    try {
-      setSuppliers(await listSuppliers(user.storeId))
-    } catch {
-      // Non-fatal.
-    }
-  }, [user])
-
-  useEffect(() => {
+    useEffect(() => {
     void load()
   }, [load])
+
+    // Surface supplier-list failures (live listener) so they are never silent.
   useEffect(() => {
-    void loadSuppliers()
-  }, [loadSuppliers])
+    if (suppliersError) {
+      notify({ type: 'error', message: suppliersError, title: 'Could not load suppliers' })
+    }
+  }, [suppliersError, notify])
 
   const draftTotals = useMemo(() => {
     let subtotal = 0
@@ -141,6 +148,86 @@ export default function PurchasesPage() {
     setProductResults([])
   }
 
+  // Creates a minimal catalogue product on the fly and drops it onto this
+  // purchase as a line. Barcode/category/brand can be completed later in
+  // Products — this only asks for what a stock-in needs.
+  const submitQuickProduct = async () => {
+    if (!user) return
+    const name = qName.trim()
+    const purchasePrice = round2(parseFloat(qPurchasePrice) || 0)
+    const sellingPrice = round2(parseFloat(qSellingPrice) || 0)
+    if (!name) {
+      toastError('Product name is required', 'Missing name')
+      return
+    }
+    if (sellingPrice <= 0) {
+      toastError('Enter a selling price greater than zero', 'Invalid price')
+      return
+    }
+    setQuickSaving(true)
+    try {
+      const draft: ProductDraft = {
+        name,
+        barcode: '',
+        sku: '',
+        categoryId: '',
+        categoryName: '',
+        brandId: '',
+        brandName: '',
+        unit: qUnit,
+        purchasePrice,
+        sellingPrice,
+        mrp: sellingPrice,
+        gstRate: parseFloat(qGstRate) || 0,
+        minimumStock: 5,
+        maximumStock: 0,
+        supplierId: supplierId === '__new__' ? '' : supplierId,
+        imageUrl: '',
+        description: '',
+        active: true,
+        trackInventory: true,
+        expiryTracking: false,
+      }
+      const id = await createProduct(user.storeId, draft, user.uid)
+      addLine({ id, name, unit: qUnit, stock: 0, purchasePrice, gstRate: draft.gstRate } as Product)
+      setQuickOpen(false)
+      setQName('')
+      setQPurchasePrice('')
+      setQSellingPrice('')
+      setQGstRate('0')
+      success(`${name} added to this purchase`, 'Product created')
+    } catch (err) {
+      toastError(friendlyError(err), 'Could not create product')
+    } finally {
+      setQuickSaving(false)
+    }
+  }
+
+  const submitNewSupplier = async () => {
+    if (!user) return
+    const name = newSupName.trim()
+    if (!name) {
+      toastError('Enter the supplier name', 'Missing name')
+      return
+    }
+    setNewSupSaving(true)
+    try {
+      const id = await createSupplier(
+        user.storeId,
+        { name, company: '', phone: '', email: '', address: '', gstNumber: '', notes: '' },
+        user.uid,
+      )
+      setSupplierId(id) // live useSuppliers listener lists it; select it immediately
+      setNewSupOpen(false)
+      setNewSupName('')
+      success(`${name} is selected for this purchase`, 'Supplier created')
+    } catch (err) {
+      toastError(friendlyError(err), 'Could not create supplier')
+    } finally {
+      setNewSupSaving(false)
+    }
+  }
+
   const submitPurchase = async () => {
     if (!user) return
     if (lines.length === 0) {
@@ -154,18 +241,9 @@ export default function PurchasesPage() {
     }
     setSubmitting(true)
     try {
-      let sid = supplierId
-      let supplierName = suppliers.find((s) => s.id === sid)?.name ?? ''
-      if (sid === '__new__') {
-        const name = window.prompt('New supplier name')
-        if (!name?.trim()) {
-          toastError('Enter a supplier name', 'Supplier required')
-          setSubmitting(false)
-          return
-        }
-        sid = await createSupplier(user.storeId, { name: name.trim(), company: '', phone: '', email: '', address: '', gstNumber: '', notes: '' }, user.uid)
-        supplierName = name.trim()
-      }
+      // `__new__` is handled by the quick-create dialog before submit.
+      const sid = supplierId === '__new__' ? '' : supplierId
+      const supplierName = suppliers.find((s) => s.id === sid)?.name ?? ''
       const items: PurchaseItem[] = lines.map((l) => {
         const taxable = round2(l.purchasePrice * l.quantity)
         const gstAmount = round2((taxable * l.gstRate) / 100)
@@ -190,8 +268,8 @@ export default function PurchasesPage() {
       success(`${items.length} products received · stock updated`, 'Purchase saved')
       setOpen(false)
       resetDraft()
-      void load()
-      void loadSuppliers()
+            void load()
+      // No manual refresh — useSuppliers live-listener reflects new suppliers.
     } catch (err) {
       toastError(friendlyError(err), 'Could not save purchase')
     } finally {
@@ -317,26 +395,44 @@ export default function PurchasesPage() {
       >
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <Select label="Supplier" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
-              <option value="">— Select —</option>
-              {suppliers.map((s) => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
-              <option value="__new__">+ New supplier…</option>
-            </Select>
+            <Select
+                label="Supplier"
+                value={supplierId}
+                onChange={(e) => {
+                  if (e.target.value === '__new__') {
+                    setNewSupOpen(true)
+                  } else {
+                    setSupplierId(e.target.value)
+                  }
+                }}
+                disabled={suppliersLoading}
+              >
+                <option value="">— Select —</option>
+                {suppliers.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+                <option value="__new__">+ New supplier…</option>
+              </Select>
             <Input label="Supplier invoice #" value={supplierInvoiceNumber} onChange={(e) => setSupplierInvoiceNumber(e.target.value)} />
             <Input label="Purchase date" type="date" value={purchaseDate} max={toDateInputValue(Date.now())} onChange={(e) => setPurchaseDate(e.target.value)} />
           </div>
 
-          {/* Product search */}
+          {/* Product search + quick create */}
           <div className="relative">
-            <Input
-              label="Find product"
-              placeholder="Search by name, barcode or SKU…"
-              value={productQuery}
-              onChange={(e) => setProductQuery(e.target.value)}
-              suffix={searchingProducts ? <span className="text-xs text-slate-400">…</span> : undefined}
-            />
+            <div className="flex items-end gap-2">
+              <div className="min-w-0 flex-1">
+                <Input
+                  label="Find product"
+                  placeholder="Search by name, barcode or SKU…"
+                  value={productQuery}
+                  onChange={(e) => setProductQuery(e.target.value)}
+                  suffix={searchingProducts ? <span className="text-xs text-slate-400">…</span> : undefined}
+                />
+              </div>
+              <Button type="button" variant="outline" leftIcon={<Plus className="h-4 w-4" />} onClick={() => setQuickOpen(true)}>
+                New product
+              </Button>
+            </div>
             {productResults.length > 0 && (
               <ul className="absolute z-10 mt-1 max-h-52 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-600 dark:bg-slate-800">
                 {productResults.map((p) => (
@@ -447,6 +543,78 @@ export default function PurchasesPage() {
               className="sm:w-56"
             />
           </div>
+        </div>
+      </Modal>
+
+      {/* Quick product creation (from inside the purchase editor) */}
+      <Modal
+        open={quickOpen}
+        onClose={() => {
+          if (!quickSaving) setQuickOpen(false)
+        }}
+        title="New product"
+        footer={
+          <>
+            <Button variant="outline" disabled={quickSaving} onClick={() => setQuickOpen(false)}>
+              Cancel
+            </Button>
+            <Button loading={quickSaving} onClick={() => void submitQuickProduct()}>
+              Create & add line
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <Input label="Product name" value={qName} onChange={(e) => setQName(e.target.value)} autoFocus />
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Purchase price (₹)" type="number" inputMode="decimal" min={0} value={qPurchasePrice} onChange={(e) => setQPurchasePrice(e.target.value)} />
+            <Input label="Selling price (₹)" type="number" inputMode="decimal" min={0} value={qSellingPrice} onChange={(e) => setQSellingPrice(e.target.value)} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Select label="Unit" value={qUnit} onChange={(e) => setQUnit(e.target.value as Unit)}>
+              {UNITS.map((u) => (
+                <option key={u} value={u}>{u}</option>
+              ))}
+            </Select>
+            <Select label="GST rate" value={qGstRate} onChange={(e) => setQGstRate(e.target.value)}>
+              {['0', '5', '12', '18', '28'].map((r) => (
+                <option key={r} value={r}>{r}%</option>
+              ))}
+            </Select>
+          </div>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            The product is created in your catalogue immediately and added to this purchase with quantity 1 — adjust quantity and cost in the lines table. Barcode, category and brand can be completed later in Products.
+          </p>
+        </div>
+      </Modal>
+
+      {/* New supplier — in-app dialog (replaces the old window.prompt) */}
+      <Modal
+        open={newSupOpen}
+        onClose={() => setNewSupOpen(false)}
+        title="New supplier"
+        size="sm"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setNewSupOpen(false)}>Cancel</Button>
+            <Button loading={newSupSaving} onClick={() => void submitNewSupplier()}>Create supplier</Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <Input
+            label="Supplier name"
+            placeholder="e.g. Sri Traders"
+            value={newSupName}
+            onChange={(e) => setNewSupName(e.target.value)}
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void submitNewSupplier()
+            }}
+          />
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            The supplier is created and selected for this purchase. Phone, GST and other details can be added later in Suppliers.
+          </p>
         </div>
       </Modal>
     </div>

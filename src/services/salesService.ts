@@ -454,7 +454,7 @@ export async function cancelSale(saleId: string, storeId: string, cancelledBy: s
 // Offline sale queue
 // ---------------------------------------------------------------------------
 
-const PENDING_KEY = 'supermart:pendingSales'
+const PENDING_KEY = 'nextbilling:pendingSales'
 
 export function queuePendingSale(draft: SaleDraft): void {
   const existing = readPendingQueue()

@@ -45,7 +45,7 @@ export function POSContent() {
   const playScan = usePlayScanSound(settings?.posSoundOnScan ?? true)
   const search = useProductSearch({ storeId: user?.storeId ?? '', includeInactive: false, debounceMs: 120 })
   const currency = settings?.currency ?? 'INR'
-  const storeName = settings?.name || 'SuperMart'
+    const storeName = settings?.name || 'Nextbilling'
   const gstIncluded = settings?.gstIncluded ?? true
 
   const [heldBills, setHeldBills] = useState<HeldBill[]>([])
@@ -460,11 +460,12 @@ export function POSContent() {
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 gap-3">
-        {/* LEFT: search + products */}
-        <div className="flex-1 overflow-y-auto">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row">
+        {/* LEFT: search + products — min-w-0 lets the panel shrink so the cart
+            never gets pushed off-screen by wide product grids */}
+        <div className="min-w-0 flex-1 lg:overflow-y-auto lg:overflow-x-hidden">
           <div className="mb-3 flex items-end gap-2">
-            <div className="flex-1">
+            <div className="min-w-0 flex-1">
               <Input
                 ref={searchRef}
                 label="Search products"
@@ -505,7 +506,7 @@ export function POSContent() {
                 : 'No products found. Try another search term.'}
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid min-w-0 grid-cols-1 gap-2 p-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
               {search.results.map((product) => {
                 const inCart = cart.items.find((l) => l.productId === product.id)
                 const qty = inCart?.quantity ?? 0
@@ -526,7 +527,7 @@ export function POSContent() {
         </div>
 
         {/* RIGHT: cart */}
-        <div className="no-print flex w-96 min-w-[24rem] max-w-md flex-col gap-3 overflow-y-auto">
+        <div className="no-print flex w-full shrink-0 flex-col gap-3 overflow-y-auto lg:w-96 lg:min-w-[24rem] lg:max-w-md">
                               <CartPanel
             cart={cart}
             currency={currency}

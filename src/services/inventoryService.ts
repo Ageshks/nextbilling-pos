@@ -98,27 +98,30 @@ export async function listStockMovements(
 /** Inventory summary with status + stock value. Reads every product document. */
 export async function listInventory(storeId: string): Promise<StockLevel[]> {
   const db = getDb()
-  const q = query(collection(db, COLLECTIONS.products), where('storeId', '==', storeId), orderBy('name', 'asc'))
+  // storeId-equality only (no composite index required); sorted client-side.
+  const q = query(collection(db, COLLECTIONS.products), where('storeId', '==', storeId))
   const snap = await getDocs(q)
-  return snap.docs.map((d) => {
-    const data = d.data() as Product
-    return {
-      product: {
-        id: d.id,
-        name: data.name,
-        sku: data.sku,
-        unit: data.unit,
-        stock: data.stock ?? 0,
-        minimumStock: data.minimumStock ?? 0,
-        maximumStock: data.maximumStock ?? 0,
-        purchasePrice: data.purchasePrice ?? 0,
-        sellingPrice: data.sellingPrice ?? 0,
-        active: data.active ?? true,
-      },
-      status: data.trackInventory ? stockStatusOf(data.stock ?? 0, data.minimumStock ?? 0) : 'IN_STOCK',
-      stockValue: (data.stock ?? 0) * (data.purchasePrice ?? 0),
-    }
-  })
+  return snap.docs
+    .map((d) => {
+      const data = d.data() as Product
+      return {
+        product: {
+          id: d.id,
+          name: data.name,
+          sku: data.sku,
+          unit: data.unit,
+          stock: data.stock ?? 0,
+          minimumStock: data.minimumStock ?? 0,
+          maximumStock: data.maximumStock ?? 0,
+          purchasePrice: data.purchasePrice ?? 0,
+          sellingPrice: data.sellingPrice ?? 0,
+          active: data.active ?? true,
+        },
+        status: data.trackInventory ? stockStatusOf(data.stock ?? 0, data.minimumStock ?? 0) : 'IN_STOCK',
+        stockValue: (data.stock ?? 0) * (data.purchasePrice ?? 0),
+      }
+    })
+    .sort((a, b) => a.product.name.localeCompare(b.product.name))
 }
 
 export async function listLowStock(storeId: string): Promise<StockLevel[]> {

@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { useLocation, useNavigate, Link } from 'react-router-dom'
-import { Store, Lock, Mail, Eye, EyeOff } from 'lucide-react'
+import { Lock, Mail, Eye, EyeOff } from 'lucide-react'
 import { loginWithEmail } from '../../firebase/auth'
 import { friendlyError } from '../../utils/errors'
 import { Input } from '../../components/ui/Input'
@@ -42,10 +42,10 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 dark:bg-slate-900">
       <div className="w-full max-w-md">
         <div className="mb-6 text-center">
-          <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-600 text-white">
-            <Store className="h-8 w-8" aria-hidden="true" />
+                    <div className="mx-auto mb-3 flex h-16 w-auto items-center justify-center">
+            <img src="/logo.png" alt="Nextbilling" className="h-16 w-auto object-contain" />
           </div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">SuperMart POS</h1>
+                    <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Nextbilling POS</h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             Sign in to your store
           </p>

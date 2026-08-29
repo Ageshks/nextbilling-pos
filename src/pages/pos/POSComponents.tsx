@@ -27,22 +27,26 @@ export function ProductTile({
   onSelect: () => void
 }) {
   const low = stock <= (product.minimumStock ?? 0)
+  // Compact labels keep badges narrow so tiles never overflow their grid cell.
+  const compact = (n: number) => (Number.isInteger(n) ? String(n) : formatNumber(n, 2))
   return (
     <button
       type="button"
       onClick={onSelect}
-      className={`flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 text-left shadow-sm transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800/60 dark:hover:bg-slate-700/40 ${low ? 'ring-2 ring-amber-400' : ''}`}
+      className={`flex w-full flex-wrap items-center gap-x-2 gap-y-1 overflow-hidden rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-left shadow-sm transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800/60 dark:hover:bg-slate-700/40 ${low ? 'ring-2 ring-amber-400' : ''}`}
     >
-      <div className="flex-1 min-w-0">
+      <div className="min-w-0 flex-1 basis-32">
         <p className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">{product.name || product.barcode}</p>
         <p className="text-xs text-slate-500 dark:text-slate-400">{formatMoney(product.sellingPrice, currency)} / {product.unit || 'pc'}</p>
       </div>
-      {quantity > 0 && (
-        <Badge tone="emerald" className="tabular-nums">{formatNumber(quantity, 2)} in bag</Badge>
-      )}
-      {showStock && low && (
-        <Badge tone="amber" className="tabular-nums">{formatNumber(stock, 2)} left</Badge>
-      )}
+      <div className="flex items-center gap-1">
+        {quantity > 0 && (
+          <Badge tone="emerald" className="tabular-nums">×{compact(quantity)} in bag</Badge>
+        )}
+        {showStock && low && (
+          <Badge tone="amber" className="tabular-nums">{compact(stock)} left</Badge>
+        )}
+      </div>
     </button>
   )
 }

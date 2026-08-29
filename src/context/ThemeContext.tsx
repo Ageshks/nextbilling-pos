@@ -11,7 +11,7 @@ interface ThemeContextValue {
 const ThemeContext = createContext<ThemeContextValue | null>(null)
 
 function getInitialTheme(): Theme {
-  const saved = localStorage.getItem('supermart:theme')
+    const saved = localStorage.getItem('nextbilling:theme')
   if (saved === 'light' || saved === 'dark') return saved
   if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark'
   return 'light'
@@ -25,7 +25,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     if (theme === 'dark') root.classList.add('dark')
     else root.classList.remove('dark')
     root.style.colorScheme = theme
-    localStorage.setItem('supermart:theme', theme)
+        localStorage.setItem('nextbilling:theme', theme)
   }, [theme])
 
   const setTheme = useCallback((t: Theme) => setThemeState(t), [])

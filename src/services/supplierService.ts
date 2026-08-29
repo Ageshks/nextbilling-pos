@@ -8,7 +8,6 @@ import {
   onSnapshot,
   query,
   where,
-  orderBy,
   serverTimestamp,
 } from 'firebase/firestore'
 import { getDb, COLLECTIONS, unwrapDocs } from '../firebase/firestore'
@@ -24,11 +23,14 @@ export interface SupplierDraft {
   notes: string
 }
 
+const byName = (a: Supplier, b: Supplier): number => (a.name ?? '').localeCompare(b.name ?? '')
+
 /**
  * Real-time supplier list for the current store. The listener is the single
  * source of truth for the UI — create/update flows never mutate local state
  * manually (the snapshot fires automatically, preventing duplicates).
- * Returns an unsubscribe function.
+ * Query is storeId-equality ONLY (no composite index required) and sorted
+ * client-side. Returns an unsubscribe function.
  */
 export function subscribeToSuppliers(
   storeId: string,
@@ -38,12 +40,13 @@ export function subscribeToSuppliers(
   const q = query(
     collection(getDb(), COLLECTIONS.suppliers),
     where('storeId', '==', storeId),
-    orderBy('name', 'asc'),
   )
   return onSnapshot(
     q,
     (snap) => {
-      const all = unwrapDocs<Supplier>(snap.docs).filter((s) => s.active !== false)
+      const all = unwrapDocs<Supplier>(snap.docs)
+        .filter((s) => s.active !== false)
+        .sort(byName)
       onData(all)
     },
     onError,
@@ -55,10 +58,9 @@ export async function listSuppliers(storeId: string): Promise<Supplier[]> {
   const q = query(
     collection(db, COLLECTIONS.suppliers),
     where('storeId', '==', storeId),
-    orderBy('name', 'asc'),
   )
   const snap = await getDocs(q)
-  return unwrapDocs<Supplier>(snap.docs)
+  return unwrapDocs<Supplier>(snap.docs).sort(byName)
 }
 
 export async function getSupplier(id: string): Promise<Supplier | null> {

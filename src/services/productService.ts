@@ -8,7 +8,6 @@ import {
   getDocs,
   query,
   where,
-  orderBy,
   limit,
   serverTimestamp,
   startAfter,
@@ -26,10 +25,9 @@ export async function listCategories(storeId: string): Promise<Category[]> {
   const q = query(
     collection(db, COLLECTIONS.categories),
     where('storeId', '==', storeId),
-    orderBy('name', 'asc'),
   )
   const snap = await getDocs(q)
-  return unwrapDocs<Category>(snap.docs)
+  return unwrapDocs<Category>(snap.docs).sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
 }
 
 export async function createCategory(storeId: string, name: string): Promise<string> {
@@ -72,10 +70,9 @@ export async function listBrands(storeId: string): Promise<Brand[]> {
   const q = query(
     collection(db, COLLECTIONS.brands),
     where('storeId', '==', storeId),
-    orderBy('name', 'asc'),
   )
   const snap = await getDocs(q)
-  return unwrapDocs<Brand>(snap.docs)
+  return unwrapDocs<Brand>(snap.docs).sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
 }
 
 export async function createBrand(storeId: string, name: string): Promise<string> {
@@ -133,22 +130,15 @@ export async function listProducts(
   let q = query(
     collection(db, COLLECTIONS.products),
     where('storeId', '==', storeId),
-    orderBy('name', 'asc'),
     limit(pageSize + 1),
   )
   if (activeOnly) {
-    q = query(
-      collection(db, COLLECTIONS.products),
-      where('storeId', '==', storeId),
-      where('active', '==', true),
-      orderBy('name', 'asc'),
-      limit(pageSize + 1),
-    )
+    q = query(q, where('active', '==', true))
   }
   if (last) q = query(q, startAfter(last))
   const snap = await getDocs(q)
   const docs = snap.docs.slice(0, pageSize)
-  const items = unwrapDocs<Product>(docs)
+  const items = unwrapDocs<Product>(docs).sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
   return { items, hasMore: snap.docs.length > pageSize, lastDoc: docs[docs.length - 1] }
 }
 
@@ -161,7 +151,8 @@ export async function getProduct(id: string): Promise<Product | null> {
 
 /**
  * Search products by barcode / name / sku / category / brand.
- * Indexed query first, then scores matches client-side.
+ * Uses a storeId-equality query only (no composite index required) and
+ * sorts/scores client-side — works instantly on any project.
  */
 export async function searchProducts(
   storeId: string,
@@ -174,14 +165,13 @@ export async function searchProducts(
   let q = query(
     collection(db, COLLECTIONS.products),
     where('storeId', '==', storeId),
-    orderBy('name', 'asc'),
     limit(pageSize),
   )
   if (!includeInactive) q = query(q, where('active', '==', true))
   const snap = await getDocs(q)
   const products = unwrapDocs<Product>(snap.docs)
 
-  if (!text) return products
+  if (!text) return products.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
 
   const scored: Array<{ p: Product; score: number }> = []
   for (const p of products) {
@@ -228,10 +218,9 @@ export async function fetchAllProducts(storeId: string): Promise<Product[]> {
     collection(db, COLLECTIONS.products),
     where('storeId', '==', storeId),
     where('active', '==', true),
-    orderBy('name', 'asc'),
   )
   const snap = await getDocs(q)
-  return unwrapDocs<Product>(snap.docs)
+  return unwrapDocs<Product>(snap.docs).sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
 }
 
 export function canEditPurchasePrice(role: Role | undefined): boolean {

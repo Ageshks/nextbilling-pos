@@ -54,7 +54,7 @@ interface CartContextValue {
 const CartContext = createContext<CartContextValue | null>(null)
 
 function storageKey(userId: string): string {
-  return `supermart:cart:${userId}`
+    return `nextbilling:cart:${userId}`
 }
 
 export function CartProvider({ userId, settings, children }: { userId: string; settings: { gstIncluded?: boolean } | null; children: ReactNode }) {

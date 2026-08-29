@@ -61,6 +61,46 @@ export default function ProductsPage() {
   const { user } = useAuth()
   const { settings } = useStore()
   const { notify, success, error: toastError } = useToast()
+  // Inline "new category / brand" dialog state — replaces the old system prompt.
+  const [newCatOpen, setNewCatOpen] = useState(false)
+  const [newCatName, setNewCatName] = useState('')
+  const [newBrandOpen, setNewBrandOpen] = useState(false)
+  const [newBrandName, setNewBrandName] = useState('')
+  const [creatingMeta, setCreatingMeta] = useState(false)
+
+  const submitNewCategory = async () => {
+    const name = newCatName.trim()
+    if (!name || !user) return
+    setCreatingMeta(true)
+    try {
+      const id = await createCategory(user.storeId, name)
+      setForm((f) => ({ ...f, categoryId: id, categoryName: name }))
+      setNewCatOpen(false)
+      setNewCatName('')
+      notify({ type: 'success', message: `Category "${name}" is now available in the dropdown.`, title: 'Category added' })
+    } catch (err) {
+      toastError(friendlyError(err), 'Could not create category')
+    } finally {
+      setCreatingMeta(false)
+    }
+  }
+
+  const submitNewBrand = async () => {
+    const name = newBrandName.trim()
+    if (!name || !user) return
+    setCreatingMeta(true)
+    try {
+      const id = await createBrand(user.storeId, name)
+      setForm((f) => ({ ...f, brandId: id, brandName: name }))
+      setNewBrandOpen(false)
+      setNewBrandName('')
+      notify({ type: 'success', message: `Brand "${name}" is now available in the dropdown.`, title: 'Brand added' })
+    } catch (err) {
+      toastError(friendlyError(err), 'Could not create brand')
+    } finally {
+      setCreatingMeta(false)
+    }
+  }
   const currency = settings?.currency ?? 'INR'
   const canEditPrices = user?.role === 'OWNER' || user?.role === 'ADMIN'
 
@@ -73,8 +113,21 @@ export default function ProductsPage() {
   const cursorRef = useRef<Parameters<typeof listProducts>[2]>(undefined)
 
   // Real-time categories & brands (live-update; no manual refresh after create/edit).
-  const { items: categories } = useCategories(user?.storeId)
-  const { items: brands } = useBrands(user?.storeId)
+  const { items: categories, error: categoriesError } = useCategories(user?.storeId)
+  const { items: brands, error: brandsError } = useBrands(user?.storeId)
+
+  useEffect(() => {
+    if (categoriesError) {
+      console.error('[PRODUCTS] categories listener failed', categoriesError)
+      notify({ type: 'error', message: categoriesError, title: 'Could not load categories' })
+    }
+  }, [categoriesError, notify])
+  useEffect(() => {
+    if (brandsError) {
+      console.error('[PRODUCTS] brands listener failed', brandsError)
+      notify({ type: 'error', message: brandsError, title: 'Could not load brands' })
+    }
+  }, [brandsError, notify])
 
   const [formOpen, setFormOpen] = useState(false)
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
@@ -373,17 +426,18 @@ export default function ProductsPage() {
             label="Category"
             value={form.categoryId}
             onChange={(e) => {
-              const cat = categories.find((c) => c.id === e.target.value)
-              if (cat) {
+              const val = e.target.value
+              const cat = categories.find((c) => c.id === val)
+              if (val === '__new__') {
+                // Open the styled in-app dialog instead of a system prompt.
+                setForm((f) => ({ ...f, categoryId: '' }))
+                setNewCatName('')
+                setNewCatOpen(true)
+              } else if (cat) {
                 setForm((f) => ({ ...f, categoryId: cat.id ?? '', categoryName: cat.name }))
               } else {
-                // "New category…" option
-                const name = window.prompt('New category name')
-                if (name && user) {
-                  void createCategory(user.storeId, name).then((id) => {
-                    setForm((f) => ({ ...f, categoryId: id, categoryName: name.trim() }))
-                  })
-                }
+                // "— None —" (empty) clears the selection.
+                setForm((f) => ({ ...f, categoryId: '', categoryName: '' }))
               }
             }}
           >
@@ -397,16 +451,16 @@ export default function ProductsPage() {
             label="Brand"
             value={form.brandId}
             onChange={(e) => {
-              const brand = brands.find((b) => b.id === e.target.value)
-              if (brand) {
+              const val = e.target.value
+              const brand = brands.find((b) => b.id === val)
+              if (val === '__new__') {
+                setForm((f) => ({ ...f, brandId: '' }))
+                setNewBrandName('')
+                setNewBrandOpen(true)
+              } else if (brand) {
                 setForm((f) => ({ ...f, brandId: brand.id ?? '', brandName: brand.name }))
               } else {
-                const name = window.prompt('New brand name')
-                if (name && user) {
-                  void createBrand(user.storeId, name).then((id) => {
-                    setForm((f) => ({ ...f, brandId: id, brandName: name.trim() }))
-                  })
-                }
+                setForm((f) => ({ ...f, brandId: '', brandName: '' }))
               }
             }}
           >
@@ -435,6 +489,58 @@ export default function ProductsPage() {
             Track inventory (deduct stock on sale)
           </label>
         </div>
+      </Modal>
+
+      {/* Quick category create — styled dialog replacing the old system prompt */}
+      <Modal
+        open={newCatOpen}
+        onClose={() => setNewCatOpen(false)}
+        title="New category"
+        size="sm"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setNewCatOpen(false)}>Cancel</Button>
+            <Button loading={creatingMeta} disabled={!newCatName.trim()} onClick={() => void submitNewCategory()}>Create category</Button>
+          </>
+        }
+      >
+        <Input
+          label="Category name *"
+          value={newCatName}
+          onChange={(e) => setNewCatName(e.target.value)}
+          placeholder="e.g. Dairy & Bakery"
+          autoFocus
+          onKeyDown={(e) => { if (e.key === 'Enter') void submitNewCategory() }}
+        />
+        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+          Saved to your store and selected for this product immediately — visible to every user in real time.
+        </p>
+      </Modal>
+
+      {/* Quick brand create — styled dialog replacing the old system prompt */}
+      <Modal
+        open={newBrandOpen}
+        onClose={() => setNewBrandOpen(false)}
+        title="New brand"
+        size="sm"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setNewBrandOpen(false)}>Cancel</Button>
+            <Button loading={creatingMeta} disabled={!newBrandName.trim()} onClick={() => void submitNewBrand()}>Create brand</Button>
+          </>
+        }
+      >
+        <Input
+          label="Brand name *"
+          value={newBrandName}
+          onChange={(e) => setNewBrandName(e.target.value)}
+          placeholder="e.g. Aashirvaad"
+          autoFocus
+          onKeyDown={(e) => { if (e.key === 'Enter') void submitNewBrand() }}
+        />
+        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+          Saved to your store and selected for this product immediately — visible to every user in real time.
+        </p>
       </Modal>
     </div>
   )

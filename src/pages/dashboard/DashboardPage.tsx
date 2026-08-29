@@ -14,7 +14,6 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useStore } from '../../context/StoreContext'
-import { useToast } from '../../context/ToastContext'
 import { StatCard } from '../../components/ui/Card'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
@@ -71,7 +70,6 @@ function MethodList({ rows }: { rows: PaymentMethodRow[] }) {
 export default function DashboardPage() {
   const { user } = useAuth()
   const { settings } = useStore()
-  const { notify } = useToast()
   const navigate = useNavigate()
   const currency = settings?.currency ?? 'INR'
 
@@ -83,47 +81,61 @@ export default function DashboardPage() {
   const [creditCustomers, setCreditCustomers] = useState(0)
   const [recentSales, setRecentSales] = useState<Array<{ id: string; invoiceNumber: string; customerName: string; total: number; createdAt: number }>>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!user) return
     setLoading(true)
-    try {
-      const todayStart = startOfDay()
-      const todayEnd = endOfDay()
-      const weekAgo = daysAgo(13, todayStart)
+    setLoadError(null)
+    const todayStart = startOfDay()
+    const todayEnd = endOfDay()
+    const weekAgo = daysAgo(13, todayStart)
 
-      const [s, day, top, pm, inv, credit, recent] = await Promise.all([
-        getSalesSummary(user.storeId, todayStart, todayEnd),
-        getSalesByDay(user.storeId, weekAgo, todayEnd),
-        getTopProducts(user.storeId, weekAgo, todayEnd, 5),
-        getPaymentMethodBreakdown(user.storeId, todayStart, todayEnd),
-        getInventoryValuation(user.storeId),
-        listCreditCustomers(user.storeId),
-        listSales({ storeId: user.storeId, max: 6 }),
-      ])
-      setSummary(s)
-      setByDay(day)
-      setTopProducts(top)
-      setPayMethods(pm)
-      setInventory({ low: inv.lowStockCount, out: inv.outOfStockCount })
-      setCreditCustomers(credit.reduce((sum, c) => sum + c.creditBalance, 0))
+    // Resilient load: every widget fetches independently so one failing query
+    // (flaky network, a denied read, an index hiccup) can never blank the whole
+    // dashboard. Partial data still renders; failures surface a banner + retry.
+    const [sRes, dayRes, topRes, pmRes, invRes, creditRes, recentRes] = await Promise.allSettled([
+      getSalesSummary(user.storeId, todayStart, todayEnd),
+      getSalesByDay(user.storeId, weekAgo, todayEnd),
+      getTopProducts(user.storeId, weekAgo, todayEnd, 5),
+      getPaymentMethodBreakdown(user.storeId, todayStart, todayEnd),
+      getInventoryValuation(user.storeId),
+      listCreditCustomers(user.storeId),
+      listSales({ storeId: user.storeId, max: 6 }),
+    ])
+
+    if (sRes.status === 'fulfilled') setSummary(sRes.value)
+    if (dayRes.status === 'fulfilled') setByDay(dayRes.value)
+    if (topRes.status === 'fulfilled') setTopProducts(topRes.value)
+    if (pmRes.status === 'fulfilled') setPayMethods(pmRes.value)
+    if (invRes.status === 'fulfilled')
+      setInventory({ low: invRes.value.lowStockCount, out: invRes.value.outOfStockCount })
+    if (creditRes.status === 'fulfilled')
+      setCreditCustomers(creditRes.value.reduce((sum, c) => sum + c.creditBalance, 0))
+    if (recentRes.status === 'fulfilled') {
       setRecentSales(
-        recent
+        recentRes.value
           .filter((r) => r.status !== 'CANCELLED')
           .map((r) => ({ id: r.id ?? '', invoiceNumber: r.invoiceNumber, customerName: r.customerName, total: r.total, createdAt: r.createdAt ?? Date.now() })),
       )
-    } catch (err) {
-      notify({ type: 'error', message: friendlyError(err), title: 'Could not load dashboard' })
-    } finally {
-      setLoading(false)
     }
-  }, [user, notify])
+
+    const failed = [sRes, dayRes, topRes, pmRes, invRes, creditRes, recentRes].filter(
+      (r) => r.status === 'rejected',
+    )
+    if (failed.length > 0) {
+      const first = (failed[0] as PromiseRejectedResult).reason
+      console.error('[DASHBOARD] failed queries:', failed.length, first)
+      setLoadError(friendlyError(first))
+    }
+    setLoading(false)
+  }, [user])
 
   useEffect(() => {
     void load()
   }, [load])
 
-  if (loading || !summary) {
+  if (loading) {
     return (
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -136,8 +148,31 @@ export default function DashboardPage() {
     )
   }
 
+  if (!summary) {
+    return (
+      <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 rounded-xl border border-slate-200 bg-white p-8 text-center dark:border-slate-700 dark:bg-slate-800/60">
+        <AlertTriangle className="h-10 w-10 text-amber-500" aria-hidden="true" />
+        <h2 className="text-base font-semibold text-slate-900 dark:text-white">Dashboard couldn't load</h2>
+        <p className="max-w-sm text-sm text-slate-500 dark:text-slate-400">
+          {loadError ?? 'Something went wrong while loading your data.'} Billing and sales are unaffected — this only affects the summary screen.
+        </p>
+        <Button variant="outline" onClick={() => void load()}>
+          Try again
+        </Button>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
+      {loadError && (
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-500/10 dark:text-amber-200">
+          <span>Some sections couldn't load: {loadError}</span>
+          <button type="button" onClick={() => void load()} className="font-semibold underline">
+            Retry
+          </button>
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-lg font-semibold text-slate-900 dark:text-white">Good day, {user?.name?.split(' ')[0]} 👋</h1>
         <Button variant="outline" size="sm" leftIcon={<ReceiptText className="h-4 w-4" />} onClick={() => navigate('/sales')}>

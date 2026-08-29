@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// SuperMart POS backend entry points.
+// Nextbilling POS backend entry points.
 //
 // Inbound customer channel : Meta WhatsApp Cloud API -> waWebhook
 // Payment callbacks        : gateway (Razorpay)      -> paymentWebhook

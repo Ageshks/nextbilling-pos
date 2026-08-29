@@ -5,7 +5,6 @@ import {
   query,
   updateDoc,
   where,
-  orderBy,
   serverTimestamp,
 } from 'firebase/firestore'
 import { getDb, COLLECTIONS, unwrapDocs } from '../firebase/firestore'
@@ -19,9 +18,16 @@ import type { Category, Brand } from '../types'
 // tabs without page reloads. Creation/edit itself lives in productService —
 // the listener is the ONLY thing that updates UI state (never manual appends,
 // which would duplicate rows when the snapshot also fires).
+//
+// Queries are deliberately storeId-equality ONLY and sort client-side. A
+// bare `where(storeId == x)` needs no composite index, so category/brand
+// lists work instantly on any project — no Firestore index build required.
 // ---------------------------------------------------------------------------
 
-/** Subscribe to a store's categories ordered by name. Returns unsubscribe. */
+const byName = <T extends { name?: string }>(a: T, b: T): number =>
+  (a.name ?? '').localeCompare(b.name ?? '')
+
+/** Subscribe to a store's categories sorted by name. Returns unsubscribe. */
 export function subscribeToCategories(
   storeId: string,
   onData: (rows: Category[]) => void,
@@ -30,20 +36,21 @@ export function subscribeToCategories(
   const q = query(
     collection(getDb(), COLLECTIONS.categories),
     where('storeId', '==', storeId),
-    orderBy('name', 'asc'),
   )
   return onSnapshot(
     q,
     (snap) => {
       // active===false means softly deleted; legacy docs without the flag stay visible.
-      const all = unwrapDocs<Category>(snap.docs).filter((c) => c.active !== false)
+      const all = unwrapDocs<Category>(snap.docs)
+        .filter((c) => c.active !== false)
+        .sort(byName)
       onData(all)
     },
     onError,
   )
 }
 
-/** Subscribe to a store's brands ordered by name. Returns unsubscribe. */
+/** Subscribe to a store's brands sorted by name. Returns unsubscribe. */
 export function subscribeToBrands(
   storeId: string,
   onData: (rows: Brand[]) => void,
@@ -52,12 +59,13 @@ export function subscribeToBrands(
   const q = query(
     collection(getDb(), COLLECTIONS.brands),
     where('storeId', '==', storeId),
-    orderBy('name', 'asc'),
   )
   return onSnapshot(
     q,
     (snap) => {
-      const all = unwrapDocs<Brand>(snap.docs).filter((b) => b.active !== false)
+      const all = unwrapDocs<Brand>(snap.docs)
+        .filter((b) => b.active !== false)
+        .sort(byName)
       onData(all)
     },
     onError,

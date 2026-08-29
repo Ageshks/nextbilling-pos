@@ -25,6 +25,7 @@ import { listLowStock, listOutOfStock } from '../../services/inventoryService'
 import { readPendingQueue } from '../../services/salesService'
 import { formatMoney } from '../../utils/format'
 import { friendlyError } from '../../utils/errors'
+import { ConfirmDialog } from '../../components/ui/Modal'
 
 interface TopbarProps {
   onMenuClick: () => void
@@ -43,6 +44,7 @@ export function Topbar({ onMenuClick, storeName }: TopbarProps) {
   const [searchText, setSearchText] = useState('')
   const [searchResults, setSearchResults] = useState<Array<{ id: string; name: string; sellingPrice: number; barcode: string }>>([])
   const [notifOpen, setNotifOpen] = useState(false)
+  const [logoutOpen, setLogoutOpen] = useState(false)
   const [lowStock, setLowStock] = useState(0)
   const [outOfStock, setOutOfStock] = useState(0)
   const [pendingCount, setPendingCount] = useState(0)
@@ -105,6 +107,13 @@ export function Topbar({ onMenuClick, storeName }: TopbarProps) {
     }
   }
 
+  const confirmLogout = () => {
+    setLogoutOpen(false)
+    void handleLogout()
+  }
+
+
+
   const currency = settings?.currency ?? 'INR'
 
   const statusUi = useMemo(() => {
@@ -120,7 +129,8 @@ export function Topbar({ onMenuClick, storeName }: TopbarProps) {
   const StatusIcon = statusUi.icon
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-slate-200 bg-white/95 px-3 backdrop-blur dark:border-slate-700 dark:bg-slate-800/95 sm:gap-3 sm:px-4">
+    <>
+      <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-slate-200 bg-white/95 px-3 backdrop-blur dark:border-slate-700 dark:bg-slate-800/95 sm:gap-3 sm:px-4">
       <button
         type="button"
         onClick={onMenuClick}
@@ -130,8 +140,10 @@ export function Topbar({ onMenuClick, storeName }: TopbarProps) {
         <Menu className="h-5 w-5" />
       </button>
 
-      <div className="min-w-0">
-        <h1 className="truncate text-sm font-bold text-slate-900 dark:text-white sm:text-base">{storeName}</h1>
+            <div className="min-w-0">
+                <h1 className="truncate text-sm font-bold text-slate-900 dark:text-white sm:text-base">
+          {storeName}
+        </h1>
       </div>
 
       <span
@@ -241,15 +253,24 @@ export function Topbar({ onMenuClick, storeName }: TopbarProps) {
           </div>
         </div>
 
-        <button
+                <button
           type="button"
-          onClick={handleLogout}
+          onClick={() => setLogoutOpen(true)}
           className="rounded-lg p-2 text-slate-500 hover:bg-red-50 hover:text-red-600 dark:text-slate-300 dark:hover:bg-red-500/10"
           aria-label="Logout"
         >
           <LogOut className="h-5 w-5" />
         </button>
       </div>
-    </header>
+      </header>
+      <ConfirmDialog
+        open={logoutOpen}
+        title="Sign out?"
+        message="You will be signed out and returned to the login screen. Any unsaved POS work will be lost."
+        confirmLabel="Sign out"
+        onConfirm={confirmLogout}
+        onCancel={() => setLogoutOpen(false)}
+      />
+    </>
   )
 }

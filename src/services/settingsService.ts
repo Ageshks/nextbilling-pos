@@ -3,7 +3,7 @@ import { getDb, COLLECTIONS } from '../firebase/firestore'
 import type { StoreSettings } from '../types'
 
 export const DEFAULT_SETTINGS: Omit<StoreSettings, 'id' | 'storeId'> = {
-  name: 'SuperMart',
+  name: 'Nextbilling',
   logoUrl: '',
   address: '',
   phone: '',

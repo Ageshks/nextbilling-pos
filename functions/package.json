@@ -1,6 +1,6 @@
 {
-  "name": "supermart-functions",
-  "description": "SuperMart POS backend: WhatsApp commerce webhooks, payment verification & order lifecycle",
+    "name": "nextbilling-functions",
+  "description": "Nextbilling POS backend: WhatsApp commerce webhooks, payment verification & order lifecycle",
   "main": "lib/index.js",
   "engines": {
     "node": "20"

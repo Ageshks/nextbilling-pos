@@ -34,7 +34,7 @@ export class RazorpayProvider implements PaymentProvider {
         currency: input.currency,
         accept_partial: false,
         reference_id: input.orderNo,
-        description: `SuperMart order ${input.orderNo}`,
+                description: `Nextbilling order ${input.orderNo}`,
         customer: { name: input.customerName, contact: input.customerPhone },
         notify: { sms: false, email: false },
         ...(input.callbackUrl ? { callback_url: input.callbackUrl, callback_method: 'get' } : {}),

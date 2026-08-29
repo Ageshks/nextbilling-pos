@@ -1,6 +1,5 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Store } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { createInitialSetup, seedStore, seedFeatureEnabled } from '../../services/seedService'
 import { friendlyError } from '../../utils/errors'
@@ -69,8 +68,8 @@ export default function SetupStorePage() {
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 dark:bg-slate-900">
       <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
         <div className="mb-4 text-center">
-          <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-600 text-white">
-            <Store className="h-6 w-6" aria-hidden="true" />
+                    <div className="mx-auto mb-2 flex h-14 w-auto items-center justify-center">
+            <img src="/logo.png" alt="Nextbilling" className="h-14 w-auto object-contain" />
           </div>
           <h1 className="text-xl font-bold text-slate-900 dark:text-white">Set up your store</h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
@@ -83,7 +82,7 @@ export default function SetupStorePage() {
               {error}
             </div>
           )}
-          <Input label="Store name" placeholder="e.g. SuperMart" value={storeName} onChange={(e) => setStoreName(e.target.value)} required autoFocus />
+                    <Input label="Store name" placeholder="e.g. Nextbilling" value={storeName} onChange={(e) => setStoreName(e.target.value)} required autoFocus />
           {withSeed && (
             <label className="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
               <input type="checkbox" checked={withSeed} onChange={(e) => setWithSeed(e.target.checked)} className="mt-0.5" />

@@ -1,4 +1,4 @@
-# SuperMart POS
+# Nextbilling POS
 
 A fast, offline-tolerant point-of-sale and inventory system for small Indian supermarkets. Built with **React 18 + TypeScript + Vite + Tailwind CSS v4 + Firebase** (Auth + Firestore). No paid services — everything runs on the free Spark tier patterns (bounded reads, on-demand reports).
 
