@@ -1,5 +1,6 @@
 import {
   getAuth,
+  connectAuthEmulator,
   signInWithEmailAndPassword,
   sendPasswordResetEmail,
   signOut,
@@ -7,11 +8,17 @@ import {
   type User as FirebaseUser,
 } from 'firebase/auth'
 import { getFirebaseApp } from './config'
+import { useEmulators } from './firestore'
 
 let _auth: ReturnType<typeof getAuth> | null = null
 
 export function getAuthInstance(): ReturnType<typeof getAuth> {
-  if (!_auth) _auth = getAuth(getFirebaseApp())
+  if (!_auth) {
+    _auth = getAuth(getFirebaseApp())
+    if (useEmulators()) {
+      connectAuthEmulator(_auth, 'http://127.0.0.1:9099', { disableWarnings: true })
+    }
+  }
   return _auth
 }
 

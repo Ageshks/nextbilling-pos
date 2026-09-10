@@ -20,6 +20,8 @@ export interface CustomerDraft {
   phone: string
   email: string
   address: string
+  /** Optional GSTIN of the customer (receiver) — printed on tax invoices when present. */
+  gstNumber?: string
   notes: string
 }
 
@@ -31,6 +33,7 @@ const WALK_IN: Customer = {
   phone: '',
   email: '',
   address: '',
+  gstNumber: '',
   notes: '',
   creditBalance: 0,
   totalSpent: 0,
@@ -66,7 +69,8 @@ export async function searchCustomers(storeId: string, text: string): Promise<Cu
       (c) =>
         c.name.toLowerCase().includes(t) ||
         c.phone.includes(t) ||
-        c.email.toLowerCase().includes(t),
+        c.email.toLowerCase().includes(t) ||
+        (c.gstNumber || '').toLowerCase().includes(t),
     )
     .slice(0, 20)
 }

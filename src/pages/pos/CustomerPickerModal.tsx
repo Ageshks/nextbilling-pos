@@ -12,7 +12,7 @@ interface CustomerPickerProps {
   open: boolean
   storeId: string
   selectedId: string | null
-  onSelect: (customer: { id: string; name: string }) => void
+  onSelect: (customer: { id: string; name: string; gst: string }) => void
   onClose: () => void
 }
 
@@ -23,12 +23,14 @@ export function CustomerPickerModal({ open, storeId, selectedId, onSelect, onClo
   const [loading, setLoading] = useState(false)
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
+  const [newGst, setNewGst] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (open) {
       setSearch('')
       setNewName('')
+      setNewGst('')
       inputRef.current?.focus()
     }
   }, [open])
@@ -63,8 +65,9 @@ export function CustomerPickerModal({ open, storeId, selectedId, onSelect, onClo
     if (!newName.trim()) return
     setCreating(true)
     try {
-      const id = await createCustomer(storeId, { name: newName, phone: '', email: '', address: '', notes: '' }, '')
-      onSelect({ id, name: newName })
+      const gst = newGst.trim().toUpperCase()
+      const id = await createCustomer(storeId, { name: newName, phone: '', email: '', address: '', gstNumber: gst, notes: '' }, '')
+      onSelect({ id, name: newName, gst })
       onClose()
     } catch (err) {
       console.error(err)
@@ -89,6 +92,9 @@ export function CustomerPickerModal({ open, storeId, selectedId, onSelect, onClo
               <Plus className="h-4 w-4" />
             </Button>
           </div>
+          <div className="mt-2">
+            <Input value={newGst} onChange={(e) => setNewGst(e.target.value.toUpperCase())} placeholder="GSTIN (optional)" inputMode="text" />
+          </div>
         </div>
 
         <div className="border-t border-slate-200 pt-2 dark:border-slate-700">
@@ -109,9 +115,9 @@ export function CustomerPickerModal({ open, storeId, selectedId, onSelect, onClo
                       type="button"
                       onClick={() => {
                         if (c.id && isWalkIn(c.id)) {
-                          onSelect({ id: 'walkin', name: walkInCustomer().name })
+                          onSelect({ id: 'walkin', name: walkInCustomer().name, gst: '' })
                         } else {
-                          onSelect({ id: c.id ?? '', name: c.name })
+                          onSelect({ id: c.id ?? '', name: c.name, gst: c.gstNumber || '' })
                         }
                         onClose()
                       }}
@@ -121,6 +127,7 @@ export function CustomerPickerModal({ open, storeId, selectedId, onSelect, onClo
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium text-slate-800 dark:text-slate-200">{c.name}</p>
                         {c.phone && <p className="text-xs text-slate-500">{c.phone}</p>}
+                        {c.gstNumber && <p className="truncate text-xs text-slate-400">GSTIN: {c.gstNumber}</p>}
                       </div>
                       {selected && <Check className="h-4 w-4 text-emerald-600" aria-label="selected" />}
                     </button>

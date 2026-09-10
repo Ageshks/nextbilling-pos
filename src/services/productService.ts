@@ -8,12 +8,14 @@ import {
   getDocs,
   query,
   where,
+  orderBy,
   limit,
   serverTimestamp,
   startAfter,
   type DocumentSnapshot,
+  type QuerySnapshot,
 } from 'firebase/firestore'
-import { getDb, COLLECTIONS, unwrapDocs } from '../firebase/firestore'
+import { getDb, COLLECTIONS, unwrapDocs, unwrapDoc } from '../firebase/firestore'
 import type { Category, Brand, Product, ProductDraft, Role } from '../types'
 
 // ---------------------------------------------------------------------------
@@ -162,36 +164,87 @@ export async function searchProducts(
 ): Promise<Product[]> {
   const text = queryText.trim().toLowerCase()
   const db = getDb()
-  let q = query(
-    collection(db, COLLECTIONS.products),
-    where('storeId', '==', storeId),
-    limit(pageSize),
-  )
-  if (!includeInactive) q = query(q, where('active', '==', true))
-  const snap = await getDocs(q)
-  const products = unwrapDocs<Product>(snap.docs)
+  const base = collection(db, COLLECTIONS.products)
 
-  if (!text) return products.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
-
-  const scored: Array<{ p: Product; score: number }> = []
-  for (const p of products) {
-    let score = 0
-    const barcode = (p.barcode || '').toLowerCase()
-    const sku = (p.sku || '').toLowerCase()
-    const name = (p.name || '').toLowerCase()
-    if (text === barcode || p.barcode === queryText.trim()) score = 100
-    else if (barcode.startsWith(text)) score = 90
-    else if (barcode.includes(text)) score = 80
-    else if (sku === text) score = 95
-    else if (sku.startsWith(text)) score = 70
-    else if (name === text) score = 85
-    else if (name.startsWith(text)) score = 60
-    else if (name.includes(text)) score = 40
-    else if ((p.categoryName || '').toLowerCase().includes(text)) score = 20
-    else if ((p.brandName || '').toLowerCase().includes(text)) score = 15
-    if (score > 0) scored.push({ p, score })
+  // No query text → deterministic slice, bounded by pageSize, sorted by name.
+  // Ordered by document ID (__name__) which needs only automatic single-field
+  // indexes — no composite index and no build delay.
+  if (!text) {
+    const q = query(base, where('storeId', '==', storeId), orderBy('__name__'), limit(Math.min(pageSize, 500)))
+    try {
+      const snap = await getDocs(q)
+      return unwrapDocs<Product>(snap.docs)
+        .filter((p) => includeInactive || p.active !== false)
+        .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+    } catch {
+      // Fallback for any index hiccup: plain equality query (never fails).
+      const fallback = await getDocs(query(base, where('storeId', '==', storeId), limit(Math.min(pageSize, 500))))
+      return unwrapDocs<Product>(fallback.docs)
+        .filter((p) => includeInactive || p.active !== false)
+        .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+    }
   }
-  scored.sort((a, b) => b.score - a.score || a.p.name.localeCompare(b.p.name))
+
+  // Keyword/barcode scan that pages the FULL catalogue using doc-ID cursors.
+  // Ordered by __name__ so it never needs a composite index; the entire
+  // catalogue is scanned deterministically, not just an arbitrary first-N
+  // slice (which is why products used to vanish from purchase search).
+  const BATCH = 300
+  const MAX_SCAN = 3000
+  const scored: Array<{ p: Product; score: number }> = []
+  let lastDoc: DocumentSnapshot | null = null
+  let scanned = 0
+  let done = false
+
+  while (!done && scanned < MAX_SCAN) {
+    let q = query(base, where('storeId', '==', storeId), orderBy('__name__'), limit(BATCH))
+    if (lastDoc) q = query(q, startAfter(lastDoc))
+
+    let snap: QuerySnapshot | null = null
+    let fallbackUsed = false
+    try {
+      snap = await getDocs(q)
+    } catch {
+      // Fallback: plain (unsorted) equality query still returns a real slice.
+      snap = await getDocs(query(base, where('storeId', '==', storeId), limit(BATCH)))
+      fallbackUsed = true
+    }
+    if (!snap || snap.empty) break
+    lastDoc = snap.docs[snap.docs.length - 1]
+    scanned += snap.docs.length
+
+    for (const d of snap.docs) {
+      const p = unwrapDoc<Product>(d.id, d.data())
+      if (!includeInactive && p.active === false) continue
+
+      let score = 0
+      const barcode = (p.barcode || '').toLowerCase()
+      const sku = (p.sku || '').toLowerCase()
+      const name = (p.name || '').toLowerCase()
+      if (text === barcode || p.barcode === queryText.trim()) score = 100
+      else if (barcode.startsWith(text)) score = 90
+      else if (barcode.includes(text)) score = 80
+      else if (sku === text) score = 95
+      else if (sku.startsWith(text)) score = 70
+      else if (name === text) score = 85
+      else if (name.startsWith(text)) score = 60
+      else if (name.includes(text)) score = 40
+      else if ((p.categoryName || '').toLowerCase().includes(text)) score = 20
+      else if ((p.brandName || '').toLowerCase().includes(text)) score = 15
+      if (score > 0) scored.push({ p, score })
+    }
+
+    // If we had to fall back to an unsorted slice we can't cursor cleanly,
+    // so stop after this batch rather than risk a mismatched cursor.
+    if (fallbackUsed) done = true
+    // Exact barcode hit → we're done scanning (found it).
+    if (scored.some((s) => s.score >= 100)) done = true
+    // Enough strong matches → stop (keeps reads bounded on large catalogues).
+    if (scored.length >= 90) done = true
+    if (snap.docs.length < BATCH) done = true
+  }
+
+  scored.sort((a, b) => b.score - a.score || (a.p.name || '').localeCompare(b.p.name || ''))
   return scored.slice(0, 30).map((s) => s.p)
 }
 

@@ -74,6 +74,13 @@ export interface StoreSettings extends FirestoreType {
   aiDeadStockDays: number
   aiSlowMovingDays: number
   aiAnomalyMultiplier: number
+  // --- Inventory returns governance (₹ thresholds; NOT hard-coded) -----------
+  /** Inventory loss (damage/expiry/quarantine) above this needs manager approval. */
+  inventoryReturnApprovalThreshold: number
+  /** Write-off value above this needs manager approval. */
+  inventoryWriteOffApprovalThreshold: number
+  /** Supplier return value above this needs manager approval. */
+  supplierReturnApprovalThreshold: number
   // --- WhatsApp commerce (operational config ONLY; never secrets) -----------
   waEnabled: boolean
   /** Display-only number shown to customers, e.g. "+91 98765 43210". */

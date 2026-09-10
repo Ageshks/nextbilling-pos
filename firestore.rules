@@ -133,6 +133,13 @@ service cloud.firestore {
       allow read: if inStoreOfRes()
       allow create: if managesStock() && createdByMeInMyStore()
       allow update, delete: if managesStock() && inStoreOfRes()
+      // Cashiers create sales in a transaction that also adjusts product
+      // stock. They may change only the two fields involved in that write;
+      // catalogue details remain restricted to stock managers.
+      allow update: if canSell()
+        && inStoreOfRes()
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['stock', 'updatedAt'])
     }
     match /categories/{id} {
       allow read: if inStoreOfRes()
@@ -181,6 +188,44 @@ service cloud.firestore {
       allow create: if managesStock() && createdByMeInMyStore()
       allow update: if managesStock() && inStoreOfRes()
       allow delete: if false
+    }
+
+    // ---- Supplier settlements (payments against purchases on credit) ---------
+    match /supplierPayments/{id} {
+      allow read: if inStoreOfRes()
+      allow create: if managesStock() && createdByMeInMyStore()
+      allow update, delete: if false
+    }
+
+    // ---- Inventory returns (damage / expiry / supplier return / write-off) -----
+    // Core commercial fields are immutable after creation; only stock-managing
+    // roles may progress a record; approval requires a MANAGER who is not the
+    // creator (self-approval is blocked); terminal records are frozen forever.
+    match /inventoryReturns/{id} {
+      allow read: if inStoreOfRes()
+      allow create: if managesStock() && createdByMeInMyStore()
+      allow update: if managesStock()
+        && inStoreOfRes()
+        && resource.data.status in ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'SENT_TO_SUPPLIER', 'SUPPLIER_ACCEPTED', 'CREDIT_RECEIVED', 'REPLACEMENT_RECEIVED']
+        && request.resource.data.productId == resource.data.productId
+        && request.resource.data.quantity == resource.data.quantity
+        && request.resource.data.purchasePrice == resource.data.purchasePrice
+        && request.resource.data.value == resource.data.value
+        && (request.resource.data.status == resource.data.status
+            || isManager()
+            || request.resource.data.status in ['SENT_TO_SUPPLIER', 'SUPPLIER_ACCEPTED', 'CREDIT_RECEIVED', 'REPLACEMENT_RECEIVED'])
+        && ((request.resource.data.status != 'APPROVED' && request.resource.data.status != 'COMPLETED')
+          || (isManager()
+              && request.resource.data.approvedBy is string
+              && request.resource.data.approvedBy != resource.data.createdBy))
+      allow delete: if false
+    }
+
+    // ---- Purchase returns (stock out; immutable like purchases) ---------------
+    match /purchaseReturns/{id} {
+      allow read: if inStoreOfRes()
+      allow create: if managesStock() && createdByMeInMyStore()
+      allow update, delete: if false
     }
 
     // ---- Stock ledger (append-only) ---------------------------------------------

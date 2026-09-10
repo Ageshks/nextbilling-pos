@@ -14,6 +14,8 @@ import {
   Settings,
   Sparkles,
   MessageCircle,
+  Undo2,
+  CalendarClock,
   type LucideIcon,
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
@@ -32,6 +34,8 @@ export const NAV_ITEMS: NavItem[] = [
   { label: 'Sales', to: '/sales', icon: ReceiptText, permission: 'sales' },
   { label: 'Products', to: '/products', icon: Package, permission: 'products' },
   { label: 'Inventory', to: '/inventory', icon: Boxes, permission: 'inventory' },
+  { label: 'Inventory Returns', to: '/inventory/returns', icon: Undo2, permission: 'inventory' },
+  { label: 'Expiry & Damage', to: '/inventory/expiry', icon: CalendarClock, permission: 'inventory' },
   { label: 'Purchases', to: '/purchases', icon: Truck, permission: 'purchases' },
   { label: 'Suppliers', to: '/suppliers', icon: Factory, permission: 'suppliers' },
   { label: 'Customers', to: '/customers', icon: Users, permission: 'customers' },

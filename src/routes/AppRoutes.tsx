@@ -14,6 +14,7 @@ const POSPage = lazy(() => import('../pages/pos/POSPage'))
 const SalesPage = lazy(() => import('../pages/sales/SalesPage'))
 const ProductsPage = lazy(() => import('../pages/products/ProductsPage'))
 const InventoryPage = lazy(() => import('../pages/inventory/InventoryPage'))
+const InventoryReturnsPage = lazy(() => import('../pages/inventory/InventoryReturnsPage'))
 const PurchasesPage = lazy(() => import('../pages/purchases/PurchasesPage'))
 const SuppliersPage = lazy(() => import('../pages/suppliers/SuppliersPage'))
 const CustomersPage = lazy(() => import('../pages/customers/CustomersPage'))
@@ -120,6 +121,46 @@ export function AppRoutes() {
             <ProtectedRoute permission="inventory">
               <PageLoader>
                 <InventoryPage />
+              </PageLoader>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/inventory/returns"
+          element={
+            <ProtectedRoute permission="inventory">
+              <PageLoader>
+                <InventoryReturnsPage />
+              </PageLoader>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/inventory/returns/new"
+          element={
+            <ProtectedRoute permission="inventory">
+              <PageLoader>
+                <InventoryReturnsPage />
+              </PageLoader>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/inventory/returns/history"
+          element={
+            <ProtectedRoute permission="inventory">
+              <PageLoader>
+                <InventoryReturnsPage />
+              </PageLoader>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/inventory/expiry"
+          element={
+            <ProtectedRoute permission="inventory">
+              <PageLoader>
+                <InventoryReturnsPage />
               </PageLoader>
             </ProtectedRoute>
           }

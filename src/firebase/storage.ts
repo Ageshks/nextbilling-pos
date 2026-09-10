@@ -28,7 +28,7 @@ export async function deleteImage(path: string): Promise<void> {
   }
 }
 
-export function makeImagePath(storeId: string, kind: 'products' | 'settings', name: string): string {
+export function makeImagePath(storeId: string, kind: 'products' | 'settings' | 'evidence', name: string): string {
   const safe = name.replace(/[^a-zA-Z0-9._-]/g, '-').toLowerCase()
   return `${storeId}/${kind}/${Date.now()}-${safe}`
 }

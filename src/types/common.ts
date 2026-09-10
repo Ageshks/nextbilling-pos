@@ -112,8 +112,12 @@ export type MovementType =
   | 'PURCHASE'
   | 'SALE'
   | 'RETURN'
+  | 'PURCHASE_RETURN'
   | 'DAMAGE'
   | 'EXPIRED'
+  | 'QUARANTINE'
+  | 'SUPPLIER_RETURN'
+  | 'WRITE_OFF'
   | 'ADJUSTMENT_IN'
   | 'ADJUSTMENT_OUT'
 

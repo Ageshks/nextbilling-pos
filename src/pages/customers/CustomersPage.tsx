@@ -20,14 +20,14 @@ import {
 import { formatMoney, formatDate } from '../../utils/format'
 import { round2 } from '../../utils/calculations'
 import { friendlyError } from '../../utils/errors'
-import { required, isPhone, isEmail, type FieldErrors } from '../../utils/validation'
+import { required, isPhone, isEmail, isGstin, type FieldErrors } from '../../utils/validation'
 import type { Customer } from '../../types'
 
 interface FormState extends CustomerDraft {
   id?: string
 }
 
-const EMPTY_FORM: FormState = { name: '', phone: '', email: '', address: '', notes: '' }
+const EMPTY_FORM: FormState = { name: '', phone: '', email: '', address: '', gstNumber: '', notes: '' }
 
 function validate(form: FormState): FieldErrors {
   const errors: FieldErrors = {}
@@ -40,6 +40,10 @@ function validate(form: FormState): FieldErrors {
   if (form.email) {
     const email = isEmail(form.email)
     if (email) errors.email = email
+  }
+  if (form.gstNumber) {
+    const gst = isGstin(form.gstNumber)
+    if (gst) errors.gstNumber = gst
   }
   return errors
 }
@@ -85,7 +89,11 @@ export default function CustomersPage() {
     const t = searchText.trim().toLowerCase()
     if (!t) return customers
     return customers.filter(
-      (c) => c.name.toLowerCase().includes(t) || c.phone.includes(t) || c.email.toLowerCase().includes(t),
+      (c) =>
+        c.name.toLowerCase().includes(t) ||
+        c.phone.includes(t) ||
+        c.email.toLowerCase().includes(t) ||
+        (c.gstNumber || '').toLowerCase().includes(t),
     )
   }, [customers, searchText])
 
@@ -98,7 +106,7 @@ export default function CustomersPage() {
   }
 
   const openEdit = (c: Customer) => {
-    setForm({ id: c.id, name: c.name, phone: c.phone, email: c.email, address: c.address, notes: c.notes })
+    setForm({ id: c.id, name: c.name, phone: c.phone, email: c.email, address: c.address, gstNumber: c.gstNumber || '', notes: c.notes })
     setErrors({})
     setFormOpen(true)
   }
@@ -165,7 +173,7 @@ export default function CustomersPage() {
       />
 
       <div className="mb-4 max-w-sm">
-        <Input label="Search" placeholder="Name, phone or email…" value={searchText} onChange={(e) => setSearchText(e.target.value)} />
+        <Input label="Search" placeholder="Name, phone, email or GSTIN…" value={searchText} onChange={(e) => setSearchText(e.target.value)} />
       </div>
 
       {loading ? (
@@ -178,6 +186,7 @@ export default function CustomersPage() {
           columns={[
             { key: 'name', header: 'Name', render: (c) => <span className="font-medium">{c.name}</span> },
             { key: 'phone', header: 'Phone', render: (c) => c.phone || '—' },
+            { key: 'gst', header: 'GSTIN', render: (c) => c.gstNumber || '—' },
             {
               key: 'credit',
               header: 'Udhaar',
@@ -229,6 +238,14 @@ export default function CustomersPage() {
           <Input label="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} error={errors.phone} inputMode="tel" />
           <Input label="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} error={errors.email} type="email" />
           <Input label="Address" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
+          <Input
+            label="GSTIN"
+            value={form.gstNumber || ''}
+            onChange={(e) => setForm({ ...form, gstNumber: e.target.value.toUpperCase() })}
+            error={errors.gstNumber}
+            placeholder="Printed on the bill when set"
+            hint="15-character GSTIN of the customer"
+          />
           <div className="sm:col-span-2">
             <Input label="Notes" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Prefers evening delivery…" />
           </div>

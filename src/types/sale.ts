@@ -30,6 +30,8 @@ export interface Sale extends FirestoreType {
   invoiceNumber: string
   customerId: string
   customerName: string
+  /** GSTIN of the customer (receiver), captured at billing — printed on the invoice when present. */
+  customerGst: string
   cashierId: string
   cashierName: string
   items: SaleItem[]
@@ -60,6 +62,7 @@ export interface HeldBill {
   heldAt: number
   customerId: string
   customerName: string
+  customerGst: string
   items: SaleItem[]
   discount: number
   subtotal: number

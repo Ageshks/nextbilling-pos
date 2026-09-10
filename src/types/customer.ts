@@ -7,6 +7,7 @@ export interface Customer extends FirestoreType {
   phone: string
   email: string
   address: string
+  gstNumber: string
   notes: string
   creditBalance: number
   totalSpent: number

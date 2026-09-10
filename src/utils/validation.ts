@@ -22,6 +22,13 @@ export function isPhone(value: string): string {
   return PHONE_RE.test(value.trim()) ? '' : 'Enter a valid phone number'
 }
 
+const GSTIN_RE = /^\d{2}[A-Z]{5}\d{4}[A-Z][A-Z\d]Z[A-Z\d]$/
+
+export function isGstin(value: string): string {
+  if (!value) return ''
+  return GSTIN_RE.test(value.trim().toUpperCase()) ? '' : 'Enter a valid 15-character GSTIN'
+}
+
 export function minZero(value: number, label: string): string {
   if (Number.isNaN(value) || value < 0) return `${label} must be 0 or more`
   return ''

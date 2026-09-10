@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Plus, Trash2 } from 'lucide-react'
+import { CircleDollarSign, Plus, Trash2, Undo2 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useStore } from '../../context/StoreContext'
 import { useToast } from '../../context/ToastContext'
@@ -13,9 +13,12 @@ import { Spinner, EmptyState } from '../../components/ui/Spinner'
 import {
   listPurchases,
   createPurchase,
+  getPurchase,
+  createPurchaseReturn,
+  recordPurchasePayment,
   type PurchaseDraft,
 } from '../../services/purchaseService'
-import type { PurchaseItem } from '../../types/purchase'
+import { PURCHASE_RETURN_METHODS, type PurchaseItem, type PurchaseReturnMethod } from '../../types/purchase'
 import { createSupplier } from '../../services/supplierService'
 import { searchProducts, createProduct } from '../../services/productService'
 import { formatMoney, formatDateTime, toDateInputValue, fromDateInputValue } from '../../utils/format'
@@ -33,6 +36,8 @@ interface DraftLine {
   purchasePrice: number
   gstRate: number
 }
+
+type RetLine = PurchaseItem & { returnQty: number }
 
 export default function PurchasesPage() {
   const { user } = useAuth()
@@ -52,11 +57,28 @@ export default function PurchasesPage() {
   const [supplierInvoiceNumber, setSupplierInvoiceNumber] = useState('')
   const [purchaseDate, setPurchaseDate] = useState(toDateInputValue(Date.now()))
   const [paidAmount, setPaidAmount] = useState('')
+  const [paymentArrangement, setPaymentArrangement] = useState<'PAY_NOW' | 'SUPPLIER_CREDIT'>('PAY_NOW')
   const [lines, setLines] = useState<DraftLine[]>([])
   const [productQuery, setProductQuery] = useState('')
   const [productResults, setProductResults] = useState<Product[]>([])
   const [searchingProducts, setSearchingProducts] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+
+  // ---- Purchase return (refund / buy-back) state ----
+  const [retOpen, setRetOpen] = useState(false)
+  const [retPurchase, setRetPurchase] = useState<Purchase | null>(null)
+  const [retLoading, setRetLoading] = useState(false)
+  const [retLines, setRetLines] = useState<RetLine[]>([])
+  const [retMethod, setRetMethod] = useState<PurchaseReturnMethod>('REFUND')
+  const [retBuyBack, setRetBuyBack] = useState('')
+  const [retNotes, setRetNotes] = useState('')
+  const [retSubmitting, setRetSubmitting] = useState(false)
+  const [paymentOpen, setPaymentOpen] = useState(false)
+  const [paymentPurchase, setPaymentPurchase] = useState<Purchase | null>(null)
+  const [settlementAmount, setSettlementAmount] = useState('')
+  const [settlementMethod, setSettlementMethod] = useState<'CASH' | 'UPI' | 'CARD' | 'OTHER'>('CASH')
+  const [settlementNotes, setSettlementNotes] = useState('')
+  const [settling, setSettling] = useState(false)
   const debounceRef = useRef<number | undefined>(undefined)
 
   // Quick product creation from within the purchase editor
@@ -113,6 +135,17 @@ export default function PurchasesPage() {
     }
     return { subtotal, gst, total: round2(subtotal + gst) }
   }, [lines])
+
+  const retTotals = useMemo(() => {
+    let subtotal = 0
+    let gst = 0
+    for (const l of retLines) {
+      if (l.returnQty <= 0) continue
+      subtotal = round2(subtotal + l.purchasePrice * l.returnQty)
+      gst = round2(gst + (l.purchasePrice * l.returnQty * l.gstRate) / 100)
+    }
+    return { subtotal, gst, total: round2(subtotal + gst) }
+  }, [retLines])
 
   // Debounced product search inside the purchase editor
   useEffect(() => {
@@ -234,7 +267,7 @@ export default function PurchasesPage() {
       toastError('Add at least one product line', 'Nothing to purchase')
       return
     }
-    const paid = round2(parseFloat(paidAmount) || 0)
+    const paid = paymentArrangement === 'SUPPLIER_CREDIT' ? 0 : round2(parseFloat(paidAmount) || 0)
     if (paid > draftTotals.total + 0.001) {
       toastError('Paid amount exceeds the purchase total', 'Invalid payment')
       return
@@ -243,6 +276,10 @@ export default function PurchasesPage() {
     try {
       // `__new__` is handled by the quick-create dialog before submit.
       const sid = supplierId === '__new__' ? '' : supplierId
+      if (paymentArrangement === 'SUPPLIER_CREDIT' && !sid) {
+        toastError('Select a supplier before recording a purchase on credit.', 'Supplier required')
+        return
+      }
       const supplierName = suppliers.find((s) => s.id === sid)?.name ?? ''
       const items: PurchaseItem[] = lines.map((l) => {
         const taxable = round2(l.purchasePrice * l.quantity)
@@ -265,7 +302,12 @@ export default function PurchasesPage() {
         createdBy: user.uid,
       }
       await createPurchase(draft)
-      success(`${items.length} products received · stock updated`, 'Purchase saved')
+      success(
+        paymentArrangement === 'SUPPLIER_CREDIT'
+          ? `${items.length} products received · ${formatMoney(draftTotals.total, currency)} added to supplier credit`
+          : `${items.length} products received · stock updated`,
+        'Purchase saved',
+      )
       setOpen(false)
       resetDraft()
             void load()
@@ -274,6 +316,126 @@ export default function PurchasesPage() {
       toastError(friendlyError(err), 'Could not save purchase')
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const openReturn = async (p: Purchase) => {
+    setRetOpen(true)
+    setRetLoading(true)
+    setRetPurchase(null)
+    setRetLines([])
+    setRetMethod('REFUND')
+    setRetBuyBack('')
+    setRetNotes('')
+    try {
+      const full = p.items?.length ? p : await getPurchase(p.id ?? '')
+      setRetPurchase(full)
+      setRetLines((full?.items ?? []).map((i) => ({ ...i, returnQty: 0 })))
+    } catch (err) {
+      toastError(friendlyError(err), 'Could not load purchase')
+      setRetOpen(false)
+    } finally {
+      setRetLoading(false)
+    }
+  }
+
+  const openSettlement = (purchase: Purchase) => {
+    const remaining = round2(Math.max(0, purchase.total - purchase.paidAmount))
+    setPaymentPurchase(purchase)
+    setSettlementAmount(String(remaining))
+    setSettlementMethod('CASH')
+    setSettlementNotes('')
+    setPaymentOpen(true)
+  }
+
+  const submitSettlement = async () => {
+    if (!user || !paymentPurchase) return
+    const amount = round2(parseFloat(settlementAmount) || 0)
+    const remaining = round2(Math.max(0, paymentPurchase.total - paymentPurchase.paidAmount))
+    if (amount <= 0 || amount > remaining + 0.001) {
+      toastError(`Enter an amount from ₹0.01 to ${formatMoney(remaining, currency)}.`, 'Invalid payment')
+      return
+    }
+    setSettling(true)
+    try {
+      await recordPurchasePayment({
+        storeId: user.storeId,
+        purchaseId: paymentPurchase.id ?? '',
+        amount,
+        method: settlementMethod,
+        notes: settlementNotes.trim(),
+        createdBy: user.uid,
+      })
+      const after = round2(remaining - amount)
+      success(
+        after <= 0 ? `${paymentPurchase.purchaseNumber} is now fully paid.` : `${formatMoney(after, currency)} remains payable.`,
+        'Supplier payment recorded',
+      )
+      setPaymentOpen(false)
+      setPaymentPurchase(null)
+      void load()
+    } catch (err) {
+      toastError(friendlyError(err), 'Could not record supplier payment')
+    } finally {
+      setSettling(false)
+    }
+  }
+
+  const submitReturn = async () => {
+    if (!user || !retPurchase) return
+    const items: PurchaseItem[] = retLines
+      .filter((l) => l.returnQty > 0)
+      .map((l) => {
+        const taxable = round2(l.purchasePrice * l.returnQty)
+        const gstAmount = round2((taxable * l.gstRate) / 100)
+        return {
+          productId: l.productId,
+          name: l.name,
+          unit: l.unit,
+          quantity: l.returnQty,
+          purchasePrice: round2(l.purchasePrice),
+          gstRate: l.gstRate,
+          gstAmount,
+          lineTotal: round2(taxable + gstAmount),
+        }
+      })
+    if (items.length === 0) {
+      toastError('Set a return quantity on at least one line', 'Nothing to return')
+      return
+    }
+    const buyBackNet = retMethod === 'BUYBACK' ? round2(parseFloat(retBuyBack) || 0) : 0
+    if (buyBackNet > retTotals.total + 0.001) {
+      toastError('Buy-back value cannot exceed the refund total', 'Invalid amount')
+      return
+    }
+    setRetSubmitting(true)
+    try {
+      await createPurchaseReturn({
+        storeId: user.storeId,
+        purchaseId: retPurchase.id ?? '',
+        purchaseNumber: retPurchase.purchaseNumber,
+        supplierId: retPurchase.supplierId ?? '',
+        supplierName: retPurchase.supplierName,
+        items,
+        method: retMethod,
+        buyBackNet,
+        notes: retNotes.trim(),
+        createdBy: user.uid,
+      })
+      const cashPart = retMethod === 'REFUND' ? retTotals.total : round2(retTotals.total - buyBackNet)
+      success(
+        cashPart > 0
+          ? `Stock deducted · ${formatMoney(cashPart, currency)} ${retMethod === 'REFUND' ? 'refunded from the cash drawer' : 'due in cash after buy-back'}`
+          : 'Stock deducted · refund fully settled by buy-back',
+        `Return saved · ${retPurchase.purchaseNumber}`,
+      )
+      setRetOpen(false)
+      setRetPurchase(null)
+      void load()
+    } catch (err) {
+      toastError(friendlyError(err), 'Could not save return')
+    } finally {
+      setRetSubmitting(false)
     }
   }
 
@@ -332,6 +494,7 @@ export default function PurchasesPage() {
     setProductQuery('')
     setProductResults([])
     setPaidAmount('')
+    setPaymentArrangement('PAY_NOW')
     setSupplierInvoiceNumber('')
     setSupplierId(suppliers[0]?.id ?? '')
     setPurchaseDate(toDateInputValue(Date.now()))
@@ -374,6 +537,19 @@ export default function PurchasesPage() {
                 <span className="text-xs text-slate-500 tabular-nums">paid {formatMoney(p.paidAmount, currency)}</span>
               </div>
             ) },
+            { key: 'actions', header: '', headerClassName: 'text-right', className: 'text-right',
+              render: (p) => (
+                <div className="flex justify-end gap-1">
+                  {p.status !== 'PAID' && (
+                    <Button size="xs" variant="outline" leftIcon={<CircleDollarSign className="h-3.5 w-3.5" />} onClick={() => openSettlement(p)}>
+                      Pay balance
+                    </Button>
+                  )}
+                  <Button size="xs" variant="outline" leftIcon={<Undo2 className="h-3.5 w-3.5" />} onClick={() => void openReturn(p)}>
+                    Return
+                  </Button>
+                </div>
+              ) },
           ]}
         />
       )}
@@ -454,6 +630,11 @@ export default function PurchasesPage() {
                 ))}
               </ul>
             )}
+            {!searchingProducts && productQuery.trim().length >= 2 && productResults.length === 0 && (
+              <p className="mt-1 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-xs text-slate-500 dark:border-slate-600">
+                No products found for “{productQuery.trim()}”. Try the name, SKU or barcode — or create it with the “New product” button.
+              </p>
+            )}
           </div>
 
           {lines.length === 0 ? (
@@ -531,19 +712,190 @@ export default function PurchasesPage() {
               <div className="flex justify-between gap-8"><span className="text-slate-500">GST</span><span className="tabular-nums">{formatMoney(draftTotals.gst, currency)}</span></div>
               <div className="flex justify-between gap-8 border-t border-slate-200 pt-1 font-bold dark:border-slate-700"><span>Total</span><span className="tabular-nums">{formatMoney(draftTotals.total, currency)}</span></div>
             </div>
+            <div className="grid gap-3 sm:w-56">
+              <Select
+                label="Payment arrangement"
+                value={paymentArrangement}
+                onChange={(e) => {
+                  const next = e.target.value as 'PAY_NOW' | 'SUPPLIER_CREDIT'
+                  setPaymentArrangement(next)
+                  if (next === 'SUPPLIER_CREDIT') setPaidAmount('')
+                }}
+              >
+                <option value="PAY_NOW">Pay now</option>
+                <option value="SUPPLIER_CREDIT">Use supplier credit</option>
+              </Select>
+              <Input
+                label="Amount paid now"
+                type="number"
+                min={0}
+                inputMode="decimal"
+                value={paidAmount}
+                disabled={paymentArrangement === 'SUPPLIER_CREDIT'}
+                onChange={(e) => setPaidAmount(e.target.value)}
+                suffix={<span className="text-xs">{currency}</span>}
+                hint={paymentArrangement === 'SUPPLIER_CREDIT'
+                  ? `${formatMoney(draftTotals.total, currency)} will be recorded as payable to this supplier.`
+                  : draftTotals.total - (parseFloat(paidAmount) || 0) > 0
+                    ? `${formatMoney(round2(draftTotals.total - (parseFloat(paidAmount) || 0)), currency)} will be added to supplier payable.`
+                    : 'Fully paid'}
+              />
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Later settlement for a purchase initially recorded on supplier credit. */}
+      <Modal
+        open={paymentOpen}
+        onClose={() => {
+          if (!settling) {
+            setPaymentOpen(false)
+            setPaymentPurchase(null)
+          }
+        }}
+        title={`Pay supplier · ${paymentPurchase?.purchaseNumber ?? ''}`}
+        size="sm"
+        footer={
+          <>
+            <Button variant="outline" disabled={settling} onClick={() => { setPaymentOpen(false); setPaymentPurchase(null) }}>Cancel</Button>
+            <Button loading={settling} onClick={submitSettlement}>Record payment</Button>
+          </>
+        }
+      >
+        {paymentPurchase && (
+          <div className="space-y-3">
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              {paymentPurchase.supplierName || 'No supplier'} · remaining payable{' '}
+              <span className="font-medium text-slate-800 dark:text-slate-100">
+                {formatMoney(round2(Math.max(0, paymentPurchase.total - paymentPurchase.paidAmount)), currency)}
+              </span>
+            </p>
             <Input
-              label="Amount paid now"
+              label="Payment amount"
               type="number"
               min={0}
               inputMode="decimal"
-              value={paidAmount}
-              onChange={(e) => setPaidAmount(e.target.value)}
+              value={settlementAmount}
+              onChange={(e) => setSettlementAmount(e.target.value)}
               suffix={<span className="text-xs">{currency}</span>}
-              hint={draftTotals.total - (parseFloat(paidAmount) || 0) > 0 ? `${formatMoney(round2(draftTotals.total - (parseFloat(paidAmount) || 0)), currency)} will be added to supplier payable` : 'Fully paid'}
-              className="sm:w-56"
             />
+            <Select label="Paid via" value={settlementMethod} onChange={(e) => setSettlementMethod(e.target.value as typeof settlementMethod)}>
+              <option value="CASH">Cash</option>
+              <option value="UPI">UPI</option>
+              <option value="CARD">Card</option>
+              <option value="OTHER">Other</option>
+            </Select>
+            <Input label="Notes (optional)" value={settlementNotes} onChange={(e) => setSettlementNotes(e.target.value)} placeholder="Reference / receipt number" />
           </div>
-        </div>
+        )}
+      </Modal>
+
+      {/* Purchase return modal (refund / buy-back) */}
+      <Modal
+        open={retOpen}
+        onClose={() => {
+          if (!retSubmitting) {
+            setRetOpen(false)
+            setRetPurchase(null)
+          }
+        }}
+        title={`Return items · ${retPurchase?.purchaseNumber ?? ''}`}
+        size="lg"
+        footer={
+          <>
+            <Button variant="outline" disabled={retSubmitting} onClick={() => { setRetOpen(false); setRetPurchase(null) }}>
+              Cancel
+            </Button>
+            <Button loading={retSubmitting} onClick={submitReturn} disabled={retLines.every((l) => l.returnQty <= 0)}>
+              Save return · {formatMoney(retTotals.total, currency)}
+            </Button>
+          </>
+        }
+      >
+        {retLoading || !retPurchase ? (
+          <Spinner label="Loading purchase…" />
+        ) : (
+          <div className="space-y-4">
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              {retPurchase.supplierName || 'No supplier'} · received {formatDateTime(retPurchase.createdAt ?? retPurchase.purchaseDate)}. Enter the quantity being returned per line — stock is deducted and the supplier balance adjusted automatically.
+            </p>
+            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
+                  <tr>
+                    <th className="px-3 py-2">Item</th>
+                    <th className="px-3 py-2">Rate</th>
+                    <th className="px-3 py-2">Received</th>
+                    <th className="w-24 px-3 py-2">Return qty</th>
+                    <th className="px-3 py-2 text-right">Credit</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                  {retLines.map((l, idx) => (
+                    <tr key={l.productId}>
+                      <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-100">{l.name}</td>
+                      <td className="px-3 py-2 tabular-nums">{formatMoney(l.purchasePrice, currency)}</td>
+                      <td className="px-3 py-2 tabular-nums text-slate-500">{l.quantity}</td>
+                      <td className="px-3 py-2">
+                        <Input
+                          type="number"
+                          min={0}
+                          max={l.quantity}
+                          aria-label={`Return quantity for ${l.name}`}
+                          value={l.returnQty === 0 ? '' : String(l.returnQty)}
+                          onChange={(e) => {
+                            const v = Math.max(0, Math.min(l.quantity, parseInt(e.target.value, 10) || 0))
+                            setRetLines((prev) => prev.map((x, i) => (i === idx ? { ...x, returnQty: v } : x)))
+                          }}
+                          className="w-20"
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">
+                        {l.returnQty > 0 ? formatMoney(round2(l.purchasePrice * l.returnQty * (1 + l.gstRate / 100)), currency) : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Select label="How is the supplier settling?" value={retMethod} onChange={(e) => setRetMethod(e.target.value as PurchaseReturnMethod)}>
+                {PURCHASE_RETURN_METHODS.map((m) => (
+                  <option key={m.value} value={m.value}>{m.label}</option>
+                ))}
+              </Select>
+              {retMethod === 'BUYBACK' ? (
+                <Input
+                  label="Value of replacement stock taken"
+                  type="number"
+                  min={0}
+                  inputMode="decimal"
+                  value={retBuyBack}
+                  onChange={(e) => setRetBuyBack(e.target.value)}
+                  suffix={<span className="text-xs">{currency}</span>}
+                  hint={`Max ${formatMoney(retTotals.total, currency)} · remaining ${formatMoney(round2(retTotals.total - Math.min(round2(parseFloat(retBuyBack) || 0), retTotals.total)), currency)} refunded in cash`}
+                />
+              ) : (
+                <Input label="Notes (optional)" value={retNotes} onChange={(e) => setRetNotes(e.target.value)} placeholder="Damaged / expired / wrong item…" />
+              )}
+            </div>
+            {retMethod === 'BUYBACK' && (
+              <Input label="Notes (optional)" value={retNotes} onChange={(e) => setRetNotes(e.target.value)} placeholder="Credit note reference…" />
+            )}
+
+            <div className="space-y-1 rounded-xl border border-slate-200 p-3 text-sm dark:border-slate-700">
+              <div className="flex justify-between gap-8"><span className="text-slate-500">Refund total (incl. GST)</span><span className="tabular-nums">{formatMoney(retTotals.total, currency)}</span></div>
+              {retMethod === 'BUYBACK' && (
+                <div className="flex justify-between gap-8"><span className="text-slate-500">Settled by stock buy-back</span><span className="tabular-nums">−{formatMoney(Math.min(round2(parseFloat(retBuyBack) || 0), retTotals.total), currency)}</span></div>
+              )}
+              <div className="flex justify-between gap-8 border-t border-slate-200 pt-1 font-bold dark:border-slate-700"><span>Cash back now</span><span className="tabular-nums">{formatMoney(retMethod === 'REFUND' ? retTotals.total : round2(retTotals.total - Math.min(round2(parseFloat(retBuyBack) || 0), retTotals.total)), currency)}</span></div>
+            </div>
+            <p className="text-xs text-slate-400">
+              Stock is deducted and ledger movements written immediately. {retMethod === 'REFUND' ? 'The refund reduces the open cash session so the drawer count stays accurate.' : 'The supplier payable is reduced by the full refund; the buy-back portion is settled by the replacement goods.'}
+            </p>
+          </div>
+        )}
       </Modal>
 
       {/* Quick product creation (from inside the purchase editor) */}

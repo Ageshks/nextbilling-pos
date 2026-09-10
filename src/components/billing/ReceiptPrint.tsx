@@ -129,6 +129,7 @@ export function ThermalReceipt({ sale, settings, cashierName }: ReceiptData) {
         <InfoRow label="Date" value={formatDateTime(sale.createdAt)} />
         <InfoRow label="Cashier" value={cashierName} />
         <InfoRow label="Customer" value={sale.customerName} />
+        {sale.customerGst && <InfoRow label="Customer GSTIN" value={sale.customerGst} />}
       </div>
       <div className="mt-2 border-t border-dashed border-slate-300">
         <div className="flex justify-between py-1 font-bold">
@@ -179,6 +180,7 @@ export function A4Invoice({ sale, settings, cashierName }: ReceiptData) {
         <div>
           <p className="font-bold">Billed To</p>
           <p>{sale.customerName}</p>
+          {sale.customerGst && <p className="text-slate-600">GSTIN: {sale.customerGst}</p>}
         </div>
         <div className="text-right">
           <p className="font-bold">Cashier</p>

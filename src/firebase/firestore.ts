@@ -1,13 +1,31 @@
-import { getFirestore, Timestamp, type Firestore, type DocumentData } from 'firebase/firestore'
+import { getFirestore, connectFirestoreEmulator, Timestamp, type Firestore, type DocumentData } from 'firebase/firestore'
 import { getFirebaseApp } from './config'
 
 let _db: Firestore | null = null
+
+/**
+ * True when the Firebase Emulator Suite should be used instead of the real
+ * project. Set VITE_USE_EMULATORS=1 (e.g. in .env.emulator or the shell) and
+ * start the suite with `npm run emulators`.
+ */
+export function useEmulators(): boolean {
+  if (import.meta.env?.VITE_USE_EMULATORS === '1') return true
+  // Node-based tooling (vitest) exposes VITE_* flags via process.env; the
+  // browser does not have `process`, so guard via globalThis.
+  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
+  return env?.VITE_USE_EMULATORS === '1'
+}
 
 // Lazy database accessor. Only initializes (and therefore validates the
 // Firebase config) when a data operation is actually attempted, so the
 // application can still render a friendly setup screen when misconfigured.
 export function getDb(): Firestore {
-  if (!_db) _db = getFirestore(getFirebaseApp())
+  if (!_db) {
+    _db = getFirestore(getFirebaseApp())
+    if (useEmulators()) {
+      connectFirestoreEmulator(_db, '127.0.0.1', 8080)
+    }
+  }
   return _db
 }
 
@@ -22,7 +40,9 @@ export const COLLECTIONS = {
   customers: 'customers',
   sales: 'sales',
   purchases: 'purchases',
+  supplierPayments: 'supplierPayments',
   stockMovements: 'stockMovements',
+  inventoryReturns: 'inventoryReturns',
   expenses: 'expenses',
   returns: 'returns',
   cashSessions: 'cashSessions',
@@ -32,6 +52,7 @@ export const COLLECTIONS = {
   dailyInsights: 'dailyInsights',
   orders: 'orders',
   waConversations: 'waConversations',
+  purchaseReturns: 'purchaseReturns',
 } as const
 
 export type CollectionName = (typeof COLLECTIONS)[keyof typeof COLLECTIONS]

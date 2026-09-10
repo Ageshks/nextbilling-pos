@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { RefreshCw, Clock, Keyboard, LogIn } from 'lucide-react'
+import { RefreshCw, Clock, Keyboard, LogIn, RotateCcw } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useStore } from '../../context/StoreContext'
 import { useToast } from '../../context/ToastContext'
@@ -26,6 +26,7 @@ import { ReceiptPrintView } from '../../components/billing/ReceiptPrint'
 import type { Product, HeldBill, CashSession, Sale, StoreSettings } from '../../types'
 import type { CartLine } from '../../context/CartContext'
 import { PaymentModal } from './PaymentModal'
+import { ReturnModal } from './ReturnModal'
 import { CustomerPickerModal } from './CustomerPickerModal'
 import { HeldBillsModal } from './HeldBillsModal'
 import { ShortcutsModal } from './ShortcutsModal'
@@ -54,6 +55,7 @@ export function POSContent() {
   const [heldOpen, setHeldOpen] = useState(false)
   const [customerOpen, setCustomerOpen] = useState(false)
   const [paymentOpen, setPaymentOpen] = useState(false)
+  const [returnOpen, setReturnOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [cashOpen, setCashOpen] = useState(false)
   const [cashConfirming, setCashConfirming] = useState(false)
@@ -203,6 +205,7 @@ export function POSContent() {
       heldAt: Date.now(),
       customerId: cart.customer.id,
       customerName: cart.customer.name,
+      customerGst: cart.customer.gst || '',
       items: buildSaleItems(),
       discount: cart.billDiscount,
       subtotal: cart.totals.subtotal,
@@ -238,7 +241,7 @@ export function POSContent() {
     }))
     cart.setItems(lines)
     cart.setBillDiscount(bill.discount ?? 0)
-    cart.setCustomer({ id: bill.customerId || 'walkin', name: bill.customerName || 'Walk-in Customer' })
+    cart.setCustomer({ id: bill.customerId || 'walkin', name: bill.customerName || 'Walk-in Customer', gst: bill.customerGst || '' })
     cart.discardSaved()
     void deleteHeldBill(bill.id ?? '')
     void loadHeldBills()
@@ -317,6 +320,7 @@ export function POSContent() {
         storeId: user.storeId,
         customerId: cart.customer.id === 'walkin' ? '' : cart.customer.id,
         customerName: cart.customer.name,
+        customerGst: cart.customer.gst || '',
         cashierId: user.uid,
         cashierName: user.name,
         items,
@@ -379,7 +383,7 @@ export function POSContent() {
         storeId={user?.storeId ?? ''}
         selectedId={cart.customer.id}
         onSelect={(c) => {
-          cart.setCustomer({ id: c.id, name: c.name })
+          cart.setCustomer({ id: c.id, name: c.name, gst: c.gst })
           setCustomerOpen(false)
           barcodeRef.current?.focus()
         }}
@@ -398,6 +402,16 @@ export function POSContent() {
       />
 
       <ShortcutsModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+
+      <ReturnModal
+        open={returnOpen}
+        onClose={() => setReturnOpen(false)}
+        storeId={user?.storeId ?? ''}
+        currency={currency}
+        cashierId={user?.uid ?? ''}
+        cashierName={user?.name ?? 'Staff'}
+        onReturned={(amt) => success(`Return processed · ${formatMoney(amt, currency)} refunded · stock restored`, 'Return saved')}
+      />
 
       <CashSessionModal
         open={cashOpen}
@@ -431,7 +445,7 @@ export function POSContent() {
 
 
     return (
-    <div className="flex h-full min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col lg:h-[calc(100dvh-5.5rem)]">
       {/* Top toolbar */}
       <div className="no-print mb-3 flex items-center justify-between gap-2">
         <h1 className="text-lg font-semibold text-slate-900 dark:text-white">{storeName} — POS</h1>
@@ -451,6 +465,10 @@ export function POSContent() {
               Open shift
             </Button>
           ) : null}
+          <Button size="sm" variant="outline" onClick={() => setReturnOpen(true)}>
+            <RotateCcw className="h-4 w-4" />
+            Return
+          </Button>
           <Button size="sm" variant="ghost" onClick={() => setHeldOpen(true)} aria-label="Held bills">
             <Clock className="h-4 w-4" />
           </Button>
@@ -527,7 +545,7 @@ export function POSContent() {
         </div>
 
         {/* RIGHT: cart */}
-        <div className="no-print flex w-full shrink-0 flex-col gap-3 overflow-y-auto lg:w-96 lg:min-w-[24rem] lg:max-w-md">
+        <div className="no-print flex w-full shrink-0 flex-col lg:min-h-0 lg:w-96 lg:min-w-[24rem] lg:max-w-md lg:overflow-hidden">
                               <CartPanel
             cart={cart}
             currency={currency}

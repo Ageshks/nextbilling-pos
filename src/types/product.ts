@@ -25,6 +25,20 @@ export interface Product {
   trackInventory: boolean
   expiryTracking: boolean
   sellingUnitQty: number
+  /** Optional batch/expiry tracking (inventory returns module). */
+  batchNumber?: string
+  /** Expiry date in epoch millis; undefined = not tracked on this product. */
+  expiryDate?: number
+  /**
+   * Non-sellable stock buckets. `stock` above is ALWAYS the sellable quantity —
+   * POS availability only ever reads `stock`. Removed/damaged/expired units are
+   * counted here so nothing is ever silently deleted.
+   */
+  stockDamaged?: number
+  stockExpired?: number
+  stockQuarantined?: number
+  stockSupplierReturn?: number
+  stockWrittenOff?: number
   createdAt?: number
   updatedAt?: number
   createdBy?: string
@@ -71,4 +85,7 @@ export interface ProductDraft {
   active: boolean
   trackInventory: boolean
   expiryTracking: boolean
+  /** yyyy-mm-dd (date input value); converted to millis on save. */
+  expiryDate?: string
+  batchNumber?: string
 }

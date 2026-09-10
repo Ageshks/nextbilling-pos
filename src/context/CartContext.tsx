@@ -21,6 +21,8 @@ export interface CartLine {
 export interface CartCustomer {
   id: string
   name: string
+  /** GSTIN captured from the customer record, printed on the receipt when present. */
+  gst?: string
 }
 
 interface PersistedCart {

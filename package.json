@@ -8,6 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "emulators": "firebase emulators:start --only auth,firestore",
     "deploy": "npm run build && firebase deploy --only hosting,firestore:rules,firestore:indexes",
     "deploy:hosting": "npm run build && firebase deploy --only hosting"
   },
