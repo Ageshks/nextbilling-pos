@@ -53,6 +53,8 @@ export const COLLECTIONS = {
   orders: 'orders',
   waConversations: 'waConversations',
   purchaseReturns: 'purchaseReturns',
+  vouchers: 'vouchers',
+  coupons: 'coupons',
 } as const
 
 export type CollectionName = (typeof COLLECTIONS)[keyof typeof COLLECTIONS]

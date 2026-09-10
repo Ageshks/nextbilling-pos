@@ -255,6 +255,22 @@ service cloud.firestore {
       allow create, update, delete: if canSell() && (createdByMeInMyStore() || inStoreOfRes())
     }
 
+    // ---- Gift vouchers (issued by managers; redeemed as tender by POS staff) ---------
+    match /vouchers/{id} {
+      allow read: if inStoreOfRes()
+      // Cashiers may only UPDATE (redemption during checkout); creating/voiding
+      // is manager-only so balances can't be minted at the counter.
+      allow create, delete: if isManager() && createdByMeInMyStore()
+      allow update: if canSell() && inStoreOfRes()
+    }
+
+    // ---- Discount coupons (manager-managed; POS increments usage) ---------------------
+    match /coupons/{id} {
+      allow read: if inStoreOfRes()
+      allow create, delete: if isManager() && createdByMeInMyStore()
+      allow update: if canSell() && inStoreOfRes()
+    }
+
     // ---- Audit trail (append-only; managers can inspect) -------------------------------
     match /auditLogs/{id} {
       allow read: if isManager() && inStoreOfRes()

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ShoppingCart, Plus, Minus, Trash2, LogOut, Clock, ReceiptText } from 'lucide-react'
+import { ShoppingCart, Plus, Minus, Trash2, LogOut, Clock, ReceiptText, Ticket, X } from 'lucide-react'
 import { useCart } from '../../context/CartContext'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
@@ -207,17 +207,19 @@ export function TotalsBlock({
   totals,
   currency,
   itemCount,
+  couponCode,
 }: {
   totals: TotalsResult
   currency: string
   itemCount: number
+  couponCode?: string
 }) {
   return (
     <div className="space-y-1 rounded-xl border border-slate-200 p-3 dark:border-slate-700">
       <div className="flex justify-between text-sm"><span className="text-slate-500 dark:text-slate-400">Items</span><span className="tabular-nums">{formatNumber(itemCount, 2)}</span></div>
       <div className="flex justify-between text-sm"><span className="text-slate-500 dark:text-slate-400">Subtotal</span><span className="tabular-nums">{formatMoney(totals.subtotal, currency)}</span></div>
       {totals.billDiscount > 0 && (
-        <div className="flex justify-between text-sm"><span className="text-slate-500 dark:text-slate-400">Discount</span><span className="tabular-nums text-emerald-700 dark:text-emerald-300">-{formatMoney(totals.discountTotal, currency)}</span></div>
+        <div className="flex justify-between text-sm"><span className="text-slate-500 dark:text-slate-400">Discount{couponCode ? ` (incl. ${couponCode})` : ''}</span><span className="tabular-nums text-emerald-700 dark:text-emerald-300">-{formatMoney(totals.discountTotal, currency)}</span></div>
       )}
       <div className="flex justify-between text-sm"><span className="text-slate-500 dark:text-slate-400">Taxable</span><span className="tabular-nums">{formatMoney(totals.taxableAmount, currency)}</span></div>
       <div className="flex justify-between text-sm"><span className="text-slate-500 dark:text-slate-400">GST</span><span className="tabular-nums">{formatMoney(totals.gstAmount, currency)}</span></div>
@@ -239,6 +241,7 @@ export function CartPanel({
   onHold,
   onClear,
   onCloseShift,
+  onCoupon,
 }: {
   cart: ReturnType<typeof useCart>
   currency: string
@@ -249,6 +252,7 @@ export function CartPanel({
   onHold: () => void
   onClear: () => void
   onCloseShift: () => void
+  onCoupon: () => void
 }) {
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800/60">
@@ -297,7 +301,18 @@ export function CartPanel({
           onSetBillDiscount={cart.setBillDiscount}
         />
 
-        <TotalsBlock totals={cart.totals} currency={currency} itemCount={cart.itemCount} />
+        <div className="flex items-center justify-between gap-2">
+          <Button size="sm" variant="outline" className="w-full" leftIcon={<Ticket className="h-4 w-4" />} onClick={onCoupon}>
+            {cart.coupon ? `Coupon ${cart.coupon.code} (-${formatMoney(cart.coupon.discount, currency)})` : 'Apply coupon'}
+          </Button>
+          {cart.coupon && (
+            <Button size="sm" variant="ghost" onClick={() => cart.setCoupon(null)} aria-label="Remove coupon">
+              <X className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
+
+        <TotalsBlock totals={cart.totals} currency={currency} itemCount={cart.itemCount} couponCode={cart.coupon?.code} />
 
         <div className="flex items-center justify-between text-sm">
           <span className="text-slate-500 dark:text-slate-400">Customer</span>

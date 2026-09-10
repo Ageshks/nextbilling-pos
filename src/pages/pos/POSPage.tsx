@@ -23,12 +23,13 @@ import {
 import { getOpenSession, openSession, closeSession } from '../../services/cashService'
 import { getPreviewInvoiceNumber } from '../../utils/invoice'
 import { ReceiptPrintView } from '../../components/billing/ReceiptPrint'
-import type { Product, HeldBill, CashSession, Sale, StoreSettings } from '../../types'
+import type { Product, HeldBill, CashSession, Sale, StoreSettings, VoucherRedemption } from '../../types'
 import type { CartLine } from '../../context/CartContext'
 import { PaymentModal } from './PaymentModal'
 import { ReturnModal } from './ReturnModal'
 import { CustomerPickerModal } from './CustomerPickerModal'
 import { HeldBillsModal } from './HeldBillsModal'
+import { CouponModal } from './CouponModal'
 import { ShortcutsModal } from './ShortcutsModal'
 import {
   ProductTile,
@@ -55,6 +56,7 @@ export function POSContent() {
   const [heldOpen, setHeldOpen] = useState(false)
   const [customerOpen, setCustomerOpen] = useState(false)
   const [paymentOpen, setPaymentOpen] = useState(false)
+  const [couponOpen, setCouponOpen] = useState(false)
   const [returnOpen, setReturnOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [cashOpen, setCashOpen] = useState(false)
@@ -206,6 +208,8 @@ export function POSContent() {
       customerId: cart.customer.id,
       customerName: cart.customer.name,
       customerGst: cart.customer.gst || '',
+      couponCode: cart.coupon?.code || '',
+      couponDiscount: cart.coupon?.discount || 0,
       items: buildSaleItems(),
       discount: cart.billDiscount,
       subtotal: cart.totals.subtotal,
@@ -242,6 +246,11 @@ export function POSContent() {
     cart.setItems(lines)
     cart.setBillDiscount(bill.discount ?? 0)
     cart.setCustomer({ id: bill.customerId || 'walkin', name: bill.customerName || 'Walk-in Customer', gst: bill.customerGst || '' })
+    if (bill.couponCode && bill.couponDiscount > 0) {
+      cart.setCoupon({ id: '', code: bill.couponCode, discount: bill.couponDiscount })
+    } else {
+      cart.setCoupon(null)
+    }
     cart.discardSaved()
     void deleteHeldBill(bill.id ?? '')
     void loadHeldBills()
@@ -305,6 +314,7 @@ export function POSContent() {
   const completeSaleFlow = async (
     payments: Array<{ method: string; amount: number }>,
     amountReceived: number,
+    voucher: VoucherRedemption | null,
   ) => {
     if (!user) {
       setReceiving(false)
@@ -321,6 +331,8 @@ export function POSContent() {
         customerId: cart.customer.id === 'walkin' ? '' : cart.customer.id,
         customerName: cart.customer.name,
         customerGst: cart.customer.gst || '',
+        coupon: cart.coupon ? { id: cart.coupon.id, code: cart.coupon.code } : null,
+        voucher,
         cashierId: user.uid,
         cashierName: user.name,
         items,
@@ -360,9 +372,10 @@ export function POSContent() {
       const handlePaymentCompleteWrap = (
     payments: Array<{ method: string; amount: number }>,
     amountReceived: number,
+    voucher: VoucherRedemption | null,
   ) => {
     setReceiving(true)
-    void completeSaleFlow(payments, amountReceived).finally(() => setReceiving(false))
+    void completeSaleFlow(payments, amountReceived, voucher).finally(() => setReceiving(false))
   }
 
   const renderModals = () => (
@@ -371,11 +384,23 @@ export function POSContent() {
         open={paymentOpen}
         total={cart.totals.total}
         currency={currency}
+        storeId={user?.storeId ?? ''}
         defaultMethod={settings?.defaultPaymentMethod || 'CASH'}
         enableCredit={settings?.enableCreditSales ?? true}
         submitting={receiving}
         onClose={() => setPaymentOpen(false)}
         onComplete={handlePaymentCompleteWrap}
+      />
+
+      <CouponModal
+        open={couponOpen}
+        storeId={user?.storeId ?? ''}
+        billAmount={cart.totals.subtotal - cart.totals.itemDiscount}
+        currency={currency}
+        applied={cart.coupon}
+        onApply={(c) => cart.setCoupon(c)}
+        onRemove={() => cart.setCoupon(null)}
+        onClose={() => setCouponOpen(false)}
       />
 
       <CustomerPickerModal
@@ -559,6 +584,7 @@ export function POSContent() {
               setDeclaredCash('')
               setCashConfirming(true)
             }}
+            onCoupon={() => setCouponOpen(true)}
           />
         </div>
       </div>

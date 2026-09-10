@@ -16,7 +16,7 @@ import {
   type DocumentReference,
 } from 'firebase/firestore'
 import { getDb, COLLECTIONS, unwrapDoc, unwrapDocs } from '../firebase/firestore'
-import type { Sale, SaleItem, SalePayment, HeldBill, PaymentMethod, Product } from '../types'
+import type { Sale, SaleItem, SalePayment, HeldBill, PaymentMethod, Product, VoucherRedemption, Voucher, Coupon } from '../types'
 import { formatInvoiceNumber } from '../utils/invoice'
 import { round2 } from '../utils/calculations'
 import { stockMovementDocument } from './inventoryService'
@@ -27,6 +27,10 @@ export interface SaleDraft {
   customerName: string
   /** Optional GSTIN of the customer (receiver) — persisted on the sale for tax invoices. */
   customerGst?: string
+  /** Coupon applied to this bill (its discount is already inside `discount`). */
+  coupon?: { id: string; code: string } | null
+  /** Gift voucher used as tender — redeemed atomically inside the transaction. */
+  voucher?: VoucherRedemption | null
   cashierId: string
   cashierName: string
   items: SaleItem[]
@@ -113,6 +117,22 @@ export async function completeSale(draft: SaleDraft): Promise<CompleteSaleResult
     const customerRef = draft.customerId ? doc(db, COLLECTIONS.customers, draft.customerId) : null
     const customerSnap = customerRef ? await tx.get(customerRef) : null
 
+    // 2c. Read the voucher + coupon (if any) in the read phase as well.
+    const voucherRef = draft.voucher?.voucherId ? doc(db, COLLECTIONS.vouchers, draft.voucher.voucherId) : null
+    const voucherSnap = voucherRef ? await tx.get(voucherRef) : null
+    if (voucherRef && draft.voucher) {
+      if (!voucherSnap!.exists()) throw new SaleError('NOT_FOUND', `Voucher ${draft.voucher.code} not found`)
+      const v = voucherSnap!.data() as Voucher
+      const amount = round2(draft.voucher.amount)
+      if (v.storeId !== draft.storeId) throw new SaleError('GENERAL', 'Voucher belongs to another store')
+      if (v.status !== 'ACTIVE') throw new SaleError('GENERAL', `Voucher ${v.code} is ${v.status === 'VOID' ? 'void' : 'fully used'}`)
+      if ((v.balance ?? 0) < amount) {
+        throw new SaleError('GENERAL', `Voucher ${v.code} has only ₹${round2(v.balance ?? 0)} left (need ₹${amount})`)
+      }
+    }
+    const couponRef = draft.coupon?.id ? doc(db, COLLECTIONS.coupons, draft.coupon.id) : null
+    const couponSnap = couponRef ? await tx.get(couponRef) : null
+
     // 3. Create the sale document.
     const saleId = doc(collection(db, COLLECTIONS.sales)).id
     const saleDoc: Omit<Sale, 'id'> = {
@@ -135,6 +155,9 @@ export async function completeSale(draft: SaleDraft): Promise<CompleteSaleResult
       amountPaid: draft.total,
       payments: draft.payments,
       status: 'COMPLETED',
+      couponCode: draft.coupon?.code || '',
+      voucherCode: draft.voucher?.code || '',
+      voucherAmount: draft.voucher ? round2(draft.voucher.amount) : 0,
       notes: draft.notes,
       heldBillId: draft.heldBillId || '',
             createdAt: serverTimestamp() as unknown as number,
@@ -181,6 +204,35 @@ export async function completeSale(draft: SaleDraft): Promise<CompleteSaleResult
       )
     }
 
+    // 7. Redeem the gift voucher (balance validated in the read phase).
+    if (voucherRef && draft.voucher) {
+      const amount = round2(draft.voucher.amount)
+      const vData = (voucherSnap && voucherSnap.exists() ? voucherSnap.data() : null) ?? {}
+      const currentBalance = (vData.balance as number | undefined) ?? 0
+      const balance = round2(currentBalance - amount)
+      tx.update(voucherRef, {
+        balance,
+        status: balance <= 0.005 ? 'REDEEMED' : 'ACTIVE',
+        lastRedeemedAt: Timestamp.now(),
+        updatedAt: serverTimestamp(),
+      })
+    }
+
+    // 8. Count the coupon redemption (limits re-checked via the read-phase snapshot).
+    if (couponRef && draft.coupon && couponSnap!.exists()) {
+      const c = couponSnap!.data() as Coupon
+      const stillAllowed = !c.active
+        ? false
+        : c.usageLimit > 0 && (c.usedCount ?? 0) >= c.usageLimit
+          ? false
+          : true
+      if (!stillAllowed) throw new SaleError('GENERAL', `Coupon ${draft.coupon.code} is no longer available`)
+      tx.update(couponRef, {
+        usedCount: (c.usedCount ?? 0) + 1,
+        updatedAt: serverTimestamp(),
+      })
+    }
+
     return { saleId, invoiceNumber }
   })
 
@@ -191,11 +243,15 @@ export async function completeSale(draft: SaleDraft): Promise<CompleteSaleResult
     status: 'COMPLETED',
     amountPaid: draft.total,
     customerName: draft.customerName || 'Cash Customer',
+    customerGst: draft.customerGst || '',
+    couponCode: draft.coupon?.code || '',
+    voucherCode: draft.voucher?.code || '',
+    voucherAmount: draft.voucher ? round2(draft.voucher.amount) : 0,
     // Local timestamp so the receipt printed right after checkout shows the
     // billing date/time (serverTimestamp() only lands in Firestore).
     createdAt: Date.now(),
     updatedAt: Date.now(),
-  } as Sale
+  } as unknown as Sale
 
   return { sale, invoiceNumber: result.invoiceNumber }
 }

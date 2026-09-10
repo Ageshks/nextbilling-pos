@@ -16,6 +16,7 @@ import {
   MessageCircle,
   Undo2,
   CalendarClock,
+  Ticket,
   type LucideIcon,
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
@@ -43,6 +44,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: 'Reports', to: '/reports', icon: BarChart3, permission: 'reports' },
   { label: 'AI Insights', to: '/insights', icon: Sparkles, permission: 'reports' },
   { label: 'WhatsApp Orders', to: '/whatsapp', icon: MessageCircle, permission: 'pos' },
+  { label: 'Coupons & Vouchers', to: '/promotions', icon: Ticket, permission: 'promotions' },
   { label: 'Users', to: '/users', icon: UserCog, permission: 'users' },
   { label: 'Settings', to: '/settings', icon: Settings, permission: 'settings' },
 ]

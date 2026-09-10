@@ -29,13 +29,21 @@ interface PersistedCart {
   items: CartLine[]
   billDiscount: number
   customer: CartCustomer
+  coupon: CartCoupon | null
   savedAt: number
+}
+
+export interface CartCoupon {
+  id: string
+  code: string
+  discount: number
 }
 
 interface CartContextValue {
   items: CartLine[]
   customer: CartCustomer
   billDiscount: number
+  coupon: CartCoupon | null
   totals: TotalsResult
   itemCount: number
   hasSavedCart: boolean
@@ -48,6 +56,7 @@ interface CartContextValue {
   setItems: (items: CartLine[]) => void
   clearCart: () => void
   setBillDiscount: (amount: number) => void
+  setCoupon: (coupon: CartCoupon | null) => void
   setCustomer: (customer: CartCustomer) => void
   restoreSaved: () => void
   discardSaved: () => void
@@ -62,6 +71,7 @@ function storageKey(userId: string): string {
 export function CartProvider({ userId, settings, children }: { userId: string; settings: { gstIncluded?: boolean } | null; children: ReactNode }) {
     const [items, setItemsState] = useState<CartLine[]>([])
   const [billDiscount, setBillDiscountState] = useState(0)
+  const [coupon, setCouponState] = useState<CartCoupon | null>(null)
   const [customer, setCustomerState] = useState<CartCustomer>({ id: 'walkin', name: 'Walk-in Customer' })
   const [hasSavedCart, setHasSavedCart] = useState(false)
 
@@ -69,13 +79,13 @@ export function CartProvider({ userId, settings, children }: { userId: string; s
 
   // Persist on every change so an accidental refresh never loses the bill.
   useEffect(() => {
-    if (items.length === 0 && billDiscount === 0) {
+    if (items.length === 0 && billDiscount === 0 && !coupon) {
       localStorage.removeItem(key)
       return
     }
-    const payload: PersistedCart = { items, billDiscount, customer, savedAt: Date.now() }
+    const payload: PersistedCart = { items, billDiscount, customer, coupon, savedAt: Date.now() }
     localStorage.setItem(key, JSON.stringify(payload))
-  }, [items, billDiscount, customer, key])
+  }, [items, billDiscount, customer, coupon, key])
 
   const addProduct = useCallback((product: Product, quantity?: number) => {
         const qty = quantity && quantity > 0 ? quantity : 1
@@ -147,12 +157,15 @@ export function CartProvider({ userId, settings, children }: { userId: string; s
   const clearCart = useCallback(() => {
     setItemsState([])
     setBillDiscountState(0)
+    setCouponState(null)
     setCustomerState({ id: 'walkin', name: 'Walk-in Customer' })
   }, [])
 
   const setBillDiscount = useCallback((amount: number) => {
     setBillDiscountState(Math.max(0, amount))
   }, [])
+
+  const setCoupon = useCallback((c: CartCoupon | null) => setCouponState(c), [])
 
   const setCustomer = useCallback((c: CartCustomer) => setCustomerState(c), [])
 
@@ -163,6 +176,7 @@ export function CartProvider({ userId, settings, children }: { userId: string; s
       const saved = JSON.parse(raw) as PersistedCart
       setItemsState(saved.items ?? [])
       setBillDiscountState(saved.billDiscount ?? 0)
+      setCouponState(saved.coupon ?? null)
       setCustomerState(saved.customer ?? { id: 'walkin', name: 'Walk-in Customer' })
       setHasSavedCart(false)
     } catch {
@@ -189,10 +203,10 @@ export function CartProvider({ userId, settings, children }: { userId: string; s
           gstRate: l.gstRate,
           discount: l.discount,
         })),
-        billDiscount,
+        billDiscount + (coupon?.discount ?? 0),
         settings?.gstIncluded ?? true,
       ),
-    [items, billDiscount, settings?.gstIncluded],
+    [items, billDiscount, coupon, settings?.gstIncluded],
   )
 
   const itemCount = useMemo(() => round2(items.reduce((sum, l) => sum + l.quantity, 0)), [items])
@@ -202,6 +216,7 @@ export function CartProvider({ userId, settings, children }: { userId: string; s
       items,
       customer,
       billDiscount,
+      coupon,
       totals,
       itemCount,
       hasSavedCart,
@@ -214,11 +229,12 @@ export function CartProvider({ userId, settings, children }: { userId: string; s
       setItems,
       clearCart,
       setBillDiscount,
+      setCoupon,
       setCustomer,
       restoreSaved,
       discardSaved,
     }),
-         [items, customer, billDiscount, totals, itemCount, hasSavedCart, addProduct, setQuantity, increment, decrement, setLineDiscount, removeLine, setItems, clearCart, setBillDiscount, setCustomer, restoreSaved, discardSaved],
+         [items, customer, billDiscount, coupon, totals, itemCount, hasSavedCart, addProduct, setQuantity, increment, decrement, setLineDiscount, removeLine, setItems, clearCart, setBillDiscount, setCoupon, setCustomer, restoreSaved, discardSaved],
   )
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>

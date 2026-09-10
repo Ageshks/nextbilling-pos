@@ -69,7 +69,7 @@ function TotalsBlock({ sale, settings }: { sale: Sale; settings: StoreSettings }
       </div>
       {sale.discount > 0 && (
         <div className="flex justify-between text-slate-700">
-          <span>Discount</span>
+          <span>{sale.couponCode ? `Discount (${sale.couponCode})` : 'Discount'}</span>
           <span>-{formatMoney(sale.discount, currency)}</span>
         </div>
       )}

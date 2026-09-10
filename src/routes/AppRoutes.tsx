@@ -22,6 +22,7 @@ const ExpensesPage = lazy(() => import('../pages/expenses/ExpensesPage'))
 const ReportsPage = lazy(() => import('../pages/reports/ReportsPage'))
 const AIInsightsPage = lazy(() => import('../pages/insights/AIInsightsPage'))
 const WhatsAppOrdersPage = lazy(() => import('../pages/whatsapp/WhatsAppOrdersPage'))
+const PromotionsPage = lazy(() => import('../pages/promotions/PromotionsPage'))
 const UsersPage = lazy(() => import('../pages/users/UsersPage'))
 const SettingsPage = lazy(() => import('../pages/settings/SettingsPage'))
 
@@ -231,6 +232,16 @@ export function AppRoutes() {
             <ProtectedRoute permission="pos">
               <PageLoader>
                 <WhatsAppOrdersPage />
+              </PageLoader>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/promotions"
+          element={
+            <ProtectedRoute permission="promotions">
+              <PageLoader>
+                <PromotionsPage />
               </PageLoader>
             </ProtectedRoute>
           }

@@ -16,6 +16,7 @@ export interface RolePermission {
   users: boolean
   settings: boolean
   cash: boolean
+  promotions: boolean
   canCancelSales: boolean
   canManageUsers: boolean
   canEditSettings: boolean
@@ -38,6 +39,7 @@ export const ROLES: Record<Role, RolePermission> = {
         users: true,
     settings: true,
     cash: true,
+    promotions: true,
     canCancelSales: true,
     canManageUsers: true,
     canEditSettings: true,
@@ -58,6 +60,7 @@ export const ROLES: Record<Role, RolePermission> = {
     users: false,
     settings: false,
     cash: true,
+    promotions: true,
     canCancelSales: true,
     canManageUsers: false,
     canEditSettings: false,
@@ -78,6 +81,7 @@ export const ROLES: Record<Role, RolePermission> = {
     users: false,
     settings: false,
     cash: false,
+    promotions: false,
     canCancelSales: false,
     canManageUsers: false,
     canEditSettings: false,
@@ -98,6 +102,7 @@ export const ROLES: Record<Role, RolePermission> = {
     users: false,
     settings: false,
     cash: false,
+    promotions: false,
     canCancelSales: false,
     canManageUsers: false,
     canEditSettings: false,
@@ -121,7 +126,7 @@ export type MovementType =
   | 'ADJUSTMENT_IN'
   | 'ADJUSTMENT_OUT'
 
-export type PaymentMethod = 'CASH' | 'UPI' | 'CARD' | 'OTHER' | 'CREDIT'
+export type PaymentMethod = 'CASH' | 'UPI' | 'CARD' | 'OTHER' | 'CREDIT' | 'VOUCHER'
 
 export type Unit =
   | 'piece'

@@ -46,6 +46,11 @@ export interface Sale extends FirestoreType {
   creditAmount: number
   payments: SalePayment[]
   status: SaleStatus
+  /** Coupon code applied to this bill (its discount is inside `discount`). */
+  couponCode: string
+  /** Gift voucher used as tender (its amount is inside `payments` as VOUCHER). */
+  voucherCode: string
+  voucherAmount: number
   notes: string
   heldBillId: string
   returnInfo?: {
@@ -63,6 +68,8 @@ export interface HeldBill {
   customerId: string
   customerName: string
   customerGst: string
+  couponCode: string
+  couponDiscount: number
   items: SaleItem[]
   discount: number
   subtotal: number
