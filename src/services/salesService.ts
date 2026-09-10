@@ -191,6 +191,10 @@ export async function completeSale(draft: SaleDraft): Promise<CompleteSaleResult
     status: 'COMPLETED',
     amountPaid: draft.total,
     customerName: draft.customerName || 'Cash Customer',
+    // Local timestamp so the receipt printed right after checkout shows the
+    // billing date/time (serverTimestamp() only lands in Firestore).
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
   } as Sale
 
   return { sale, invoiceNumber: result.invoiceNumber }

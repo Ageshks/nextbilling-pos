@@ -3,7 +3,7 @@ import { Search, User, Plus, Check } from 'lucide-react'
 import { Modal } from '../../components/ui/Modal'
 import { Input } from '../../components/ui/Input'
 import { Button } from '../../components/ui/Button'
-import { searchCustomers, createCustomer } from '../../services/customerService'
+import { searchCustomers, createCustomer, updateCustomer } from '../../services/customerService'
 import { useDebounce } from '../../hooks/useOnlineStatus'
 import type { Customer } from '../../types'
 import { isWalkIn, walkInCustomer } from '../../services/customerService'
@@ -23,14 +23,14 @@ export function CustomerPickerModal({ open, storeId, selectedId, onSelect, onClo
   const [loading, setLoading] = useState(false)
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
-  const [newGst, setNewGst] = useState('')
+  const [billGst, setBillGst] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (open) {
       setSearch('')
       setNewName('')
-      setNewGst('')
+      setBillGst('')
       inputRef.current?.focus()
     }
   }, [open])
@@ -65,7 +65,7 @@ export function CustomerPickerModal({ open, storeId, selectedId, onSelect, onClo
     if (!newName.trim()) return
     setCreating(true)
     try {
-      const gst = newGst.trim().toUpperCase()
+      const gst = billGst.trim().toUpperCase()
       const id = await createCustomer(storeId, { name: newName, phone: '', email: '', address: '', gstNumber: gst, notes: '' }, '')
       onSelect({ id, name: newName, gst })
       onClose()
@@ -74,6 +74,22 @@ export function CustomerPickerModal({ open, storeId, selectedId, onSelect, onClo
     } finally {
       setCreating(false)
     }
+  }
+
+  const handleSelect = (c: Customer) => {
+    const typedGst = billGst.trim().toUpperCase()
+    if (c.id && isWalkIn(c.id)) {
+      // Walk-in: the GSTIN (if typed) applies to this bill only.
+      onSelect({ id: 'walkin', name: walkInCustomer().name, gst: typedGst })
+    } else {
+      const chosen = typedGst || c.gstNumber || ''
+      // Persist the GSTIN onto the customer record when it was typed in here.
+      if (c.id && typedGst && typedGst !== (c.gstNumber || '')) {
+        void updateCustomer(c.id, { gstNumber: typedGst }, '').catch((err) => console.error(err))
+      }
+      onSelect({ id: c.id ?? '', name: c.name, gst: chosen })
+    }
+    onClose()
   }
 
   return (
@@ -92,9 +108,16 @@ export function CustomerPickerModal({ open, storeId, selectedId, onSelect, onClo
               <Plus className="h-4 w-4" />
             </Button>
           </div>
-          <div className="mt-2">
-            <Input value={newGst} onChange={(e) => setNewGst(e.target.value.toUpperCase())} placeholder="GSTIN (optional)" inputMode="text" />
-          </div>
+        </div>
+
+        <div className="border-t border-slate-200 pt-2 dark:border-slate-700">
+          <Input
+            value={billGst}
+            onChange={(e) => setBillGst(e.target.value.toUpperCase())}
+            placeholder="GSTIN for this bill (optional)"
+            inputMode="text"
+            hint="Printed on the receipt. If the selected customer already has one, leave this blank."
+          />
         </div>
 
         <div className="border-t border-slate-200 pt-2 dark:border-slate-700">
@@ -113,14 +136,7 @@ export function CustomerPickerModal({ open, storeId, selectedId, onSelect, onClo
                   <li key={c.id ?? 'walkin'}>
                     <button
                       type="button"
-                      onClick={() => {
-                        if (c.id && isWalkIn(c.id)) {
-                          onSelect({ id: 'walkin', name: walkInCustomer().name, gst: '' })
-                        } else {
-                          onSelect({ id: c.id ?? '', name: c.name, gst: c.gstNumber || '' })
-                        }
-                        onClose()
-                      }}
+                      onClick={() => handleSelect(c)}
                       className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-700/40"
                     >
                       <User className="h-4 w-4 text-slate-400" aria-hidden="true" />

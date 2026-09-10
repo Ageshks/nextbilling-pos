@@ -20,33 +20,41 @@ export function formatNumber(n: number, maxFrac = 3): string {
   }).format(n || 0)
 }
 
-export function formatDate(ts?: number): string {
-  if (!ts) return '—'
-  return new Intl.DateTimeFormat('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  }).format(new Date(ts))
+/** Accepts a JS timestamp, Date, or Firestore Timestamp and returns a Date (or null). */
+function toDate(ts?: unknown): Date | null {
+  if (!ts) return null
+  if (typeof ts === 'number') return new Date(ts)
+  if (ts instanceof Date) return Number.isNaN(ts.getTime()) ? null : ts
+  const t = ts as { toDate?: () => Date; seconds?: number }
+  if (typeof t.toDate === 'function') return t.toDate()
+  if (typeof t.seconds === 'number') return new Date(t.seconds * 1000)
+  const parsed = new Date(ts as string | number)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
-export function formatDateTime(ts?: number): string {
-  if (!ts) return '—'
-  return new Intl.DateTimeFormat('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(ts))
+function fmt(date: Date | null, opts: Intl.DateTimeFormatOptions): string {
+  if (!date) return '—'
+  try {
+    return new Intl.DateTimeFormat('en-IN', opts).format(date)
+  } catch {
+    return '—'
+  }
 }
 
-export function formatTime(ts?: number): string {
-  if (!ts) return '—'
-  return new Intl.DateTimeFormat('en-IN', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  }).format(new Date(ts))
+const DATE_OPTS: Intl.DateTimeFormatOptions = { day: '2-digit', month: 'short', year: 'numeric' }
+const DATETIME_OPTS: Intl.DateTimeFormatOptions = { ...DATE_OPTS, hour: '2-digit', minute: '2-digit' }
+const TIME_OPTS: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit', second: '2-digit' }
+
+export function formatDate(ts?: unknown): string {
+  return fmt(toDate(ts), DATE_OPTS)
+}
+
+export function formatDateTime(ts?: unknown): string {
+  return fmt(toDate(ts), DATETIME_OPTS)
+}
+
+export function formatTime(ts?: unknown): string {
+  return fmt(toDate(ts), TIME_OPTS)
 }
 
 export function startOfDay(ts = Date.now()): number {
